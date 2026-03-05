@@ -1,0 +1,1 @@
+"""Acolito Manager application source."""

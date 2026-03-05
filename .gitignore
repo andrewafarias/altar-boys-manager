@@ -23,3 +23,5 @@ data/
 .vscode/
 *.swp
 *.swo
+
+*.pdf

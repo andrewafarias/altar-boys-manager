@@ -12,13 +12,15 @@ import platform
 import json
 from pathlib import Path
 
-# Get the directory where this script is located
-SCRIPT_DIR = Path(__file__).resolve().parent
-VENV_DIR = SCRIPT_DIR / "venv"
-DATA_FILE = SCRIPT_DIR / "data" / "acolitos_data.json"
-REQUIREMENTS_FILE = SCRIPT_DIR / "requirements.txt"
-MAIN_SCRIPT = SCRIPT_DIR / "main.py"
-GENERATE_DATA_SCRIPT = SCRIPT_DIR / "generate_data_from_table.py"
+# Get the root project directory (one level up from scripts)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_DIR = PROJECT_ROOT / "scripts"
+VENV_DIR = PROJECT_ROOT / "venv"
+DATA_DIR = PROJECT_ROOT / "data"
+DATA_FILE = DATA_DIR / "acolitos_data.json"
+REQUIREMENTS_FILE = PROJECT_ROOT / "requirements.txt"
+MAIN_SCRIPT = PROJECT_ROOT / "main.py"
+GENERATE_DATA_SCRIPT = SCRIPT_DIR / "generate_data.py"
 
 # Platform detection
 IS_WINDOWS = platform.system() == "Windows"

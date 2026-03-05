@@ -3,11 +3,13 @@
 import json
 import os
 from typing import List, Tuple
+from pathlib import Path
 
-from models import Acolyte, ScheduleSlot, GeneralEvent, GeneratedSchedule, FinalizedEventBatch, StandardSlot
+from .models import Acolyte, ScheduleSlot, GeneralEvent, GeneratedSchedule, FinalizedEventBatch, StandardSlot
 
-DATA_DIR = "data"
-DATA_FILE = os.path.join(DATA_DIR, "acolitos_data.json")
+# Data directory is relative to the root of the project (one level up from src)
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+DATA_FILE = DATA_DIR / "acolitos_data.json"
 
 
 def save_data(
@@ -19,7 +21,7 @@ def save_data(
     standard_slots: List[StandardSlot] = None,
 ) -> None:
     """Salva todos os dados no arquivo JSON."""
-    os.makedirs(DATA_DIR, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     data = {
         "acolytes": [a.to_dict() for a in acolytes],
         "schedule_slots": [s.to_dict() for s in schedule_slots],
@@ -34,7 +36,7 @@ def save_data(
 
 def load_data():
     """Carrega os dados do arquivo JSON. Retorna listas vazias se o arquivo não existir."""
-    if not os.path.exists(DATA_FILE):
+    if not DATA_FILE.exists():
         return [], [], [], [], [], []
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:

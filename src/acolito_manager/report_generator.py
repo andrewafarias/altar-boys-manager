@@ -16,7 +16,7 @@ from reportlab.platypus import (
     PageBreak,
 )
 
-from models import Acolyte
+from .models import Acolyte
 
 
 def _sanitize_anchor(name: str) -> str:
