@@ -1,4 +1,4 @@
-# Acolito Manager
+# Altar Boys Manager
 
 Church acolyte scheduling and management application built with Python and Tkinter.
 
