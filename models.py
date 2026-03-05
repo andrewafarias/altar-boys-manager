@@ -25,6 +25,7 @@ class Suspension:
     start_date: str
     duration: str
     is_active: bool = True
+    end_date: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
@@ -34,6 +35,7 @@ class Suspension:
             "start_date": self.start_date,
             "duration": self.duration,
             "is_active": self.is_active,
+            "end_date": self.end_date,
         }
 
     @classmethod
@@ -44,6 +46,7 @@ class Suspension:
             start_date=data["start_date"],
             duration=data["duration"],
             is_active=data.get("is_active", True),
+            end_date=data.get("end_date", ""),
         )
 
 
@@ -193,6 +196,8 @@ class ScheduleSlot:
     time: str
     description: str = ""
     acolyte_ids: List[str] = field(default_factory=list)
+    is_general_event: bool = False
+    general_event_name: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
@@ -203,6 +208,8 @@ class ScheduleSlot:
             "time": self.time,
             "description": self.description,
             "acolyte_ids": self.acolyte_ids,
+            "is_general_event": self.is_general_event,
+            "general_event_name": self.general_event_name,
         }
 
     @classmethod
@@ -214,6 +221,8 @@ class ScheduleSlot:
             time=data["time"],
             description=data.get("description", ""),
             acolyte_ids=data.get("acolyte_ids", []),
+            is_general_event=data.get("is_general_event", False),
+            general_event_name=data.get("general_event_name", ""),
         )
 
 
