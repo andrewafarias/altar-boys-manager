@@ -510,7 +510,7 @@ class AddEventDialog(BaseDialog):
             frame, text="Incluir como atividade", variable=self.include_as_activity_var
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
 
-        self.include_as_schedule_var = tk.BooleanVar(value=True)
+        self.include_as_schedule_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             frame, text="Incluir como escala", variable=self.include_as_schedule_var
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=4)

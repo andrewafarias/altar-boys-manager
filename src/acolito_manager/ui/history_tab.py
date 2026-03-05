@@ -162,6 +162,11 @@ class HistoryTab(ttk.Frame):
             self._ev_tree.column(col, width=w, minwidth=40)
         self._ev_tree.pack(fill=tk.BOTH, expand=True)
 
+        # Buttons for event management
+        ev_btn_frame = ttk.Frame(self._ev_detail_frame)
+        ev_btn_frame.pack(fill=tk.X, pady=4)
+        ttk.Button(ev_btn_frame, text="🗑️ Excluir Atividade Selecionada", command=self._delete_event_entry).pack(side=tk.LEFT, padx=2)
+
     # --------------------------------------------------------------------- #
     #  Refresh
     # --------------------------------------------------------------------- #
@@ -370,3 +375,44 @@ class HistoryTab(ttk.Frame):
         self._ev_detail_frame.pack_forget()
         self.app.acolytes_tab.refresh_list()
         messagebox.showinfo("Concluído", "Lote de atividades excluído.")
+
+    def _delete_event_entry(self):
+        """Delete a single event entry from the selected batch."""
+        # Get selected batch
+        batch_sel = self._ev_listbox.curselection()
+        if not batch_sel:
+            messagebox.showinfo("Aviso", "Selecione um lote de atividades.")
+            return
+        batch_idx = batch_sel[0]
+        if batch_idx >= len(self.app.finalized_event_batches):
+            return
+        fb = self.app.finalized_event_batches[batch_idx]
+
+        # Get selected event entry in the tree
+        tree_sel = self._ev_tree.selection()
+        if not tree_sel:
+            messagebox.showinfo("Aviso", "Selecione uma atividade para excluir.")
+            return
+        entry_idx = self._ev_tree.index(tree_sel[0])
+        if entry_idx >= len(fb.entries):
+            return
+
+        entry = fb.entries[entry_idx]
+        if not messagebox.askyesno(
+            "Confirmar",
+            f"Excluir a atividade '{entry.name}' de {entry.date}?\n\n"
+            "Isso removerá o registro de atividade dos {0} acólito(s) que participaram.".format(len(entry.participating_acolyte_ids)),
+        ):
+            return
+
+        # Remove from acolytes' event history
+        for ac in self.app.acolytes:
+            ac.event_history = [e for e in ac.event_history if e.event_id != entry.event_id]
+
+        # Remove from batch
+        fb.entries.pop(entry_idx)
+
+        self.app.save()
+        self._on_ev_select()  # Refresh the tree view
+        self.app.acolytes_tab.refresh_list()
+        messagebox.showinfo("Concluído", "Atividade excluída do lote.")

@@ -1,8 +1,14 @@
 """Script to generate acolitos_data.json from table information."""
 
 import json
+import os
 import uuid
 from datetime import datetime
+from pathlib import Path
+
+# Get project root directory (two levels up from this script)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
 
 # Table data parsed from the spreadsheet
 table_data = [
@@ -404,11 +410,10 @@ def generate_acolyte_data(acolyte_info):
     
     # Process bonus movements
     if initial_bonus > 0:
-        # Add bonus earned
-        for i in range(initial_bonus):
-            acolyte["bonus_movements"].append(
-                create_bonus_movement("earn", 1, "Bônus disponível inicial", "01/01")
-            )
+        # Add a single movement with the full initial bonus amount
+        acolyte["bonus_movements"].append(
+            create_bonus_movement("earn", initial_bonus, "Bônus disponível inicial", "01/01")
+        )
     
     # Process bonus usage
     if acolyte_info["bonus_utilizado"]:
@@ -436,8 +441,12 @@ def main():
         "acolytes": acolytes
     }
     
+    # Create data directory if it doesn't exist
+    os.makedirs(DATA_DIR, exist_ok=True)
+    
     # Write to file
-    with open("data/acolitos_data.json", "w", encoding="utf-8") as f:
+    data_file = DATA_DIR / "acolitos_data.json"
+    with open(data_file, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     
     print(f"✅ Data file generated successfully with {len(acolytes)} acolytes!")

@@ -937,7 +937,12 @@ class AcolytesTab(ttk.Frame):
             return
         try:
             sorted_acs = sorted(self.app.acolytes, key=lambda a: a.name.lower())
-            generate_report(sorted_acs, path)
+            finalized_entries = [
+                entry
+                for batch in self.app.finalized_event_batches
+                for entry in batch.entries
+            ]
+            generate_report(sorted_acs, path, finalized_entries)
             if messagebox.askyesno("Sucesso", f"Relatório gerado em:\n{path}\n\nDeseja abrir o arquivo?"):
                 self._open_file(path)
         except Exception as e:

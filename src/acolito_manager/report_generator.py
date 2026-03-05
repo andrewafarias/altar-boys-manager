@@ -16,7 +16,7 @@ from reportlab.platypus import (
     PageBreak,
 )
 
-from .models import Acolyte
+from .models import Acolyte, FinalizedEventBatchEntry
 
 
 def _sanitize_anchor(name: str) -> str:
@@ -48,12 +48,18 @@ def _build_table(data: list, col_widths: list) -> Table:
     return table
 
 
-def generate_report(acolytes: List[Acolyte], output_path: str) -> str:
+def generate_report(
+    acolytes: List[Acolyte],
+    output_path: str,
+    registered_events: List[FinalizedEventBatchEntry] = None,
+) -> str:
     """
     Gera um relatório PDF com os dados de todos os acólitos.
     A primeira página contém um resumo com links para cada acólito.
     Retorna o caminho do arquivo gerado.
     """
+    if registered_events is None:
+        registered_events = []
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,
@@ -173,6 +179,60 @@ def generate_report(acolytes: List[Acolyte], output_path: str) -> str:
         )
     )
     story.append(summary_table)
+
+    # =====================================================================
+    # SEÇÃO DE ATIVIDADES: Tabela com todos os eventos registrados
+    # =====================================================================
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph("Atividades Registradas", style_section))
+    story.append(Spacer(1, 0.2 * cm))
+
+    if registered_events:
+        events_header = [
+            [
+                Paragraph("<b>Nome da Atividade</b>", style_body),
+                Paragraph("<b>Data</b>", style_body),
+                Paragraph("<b>Horário</b>", style_body),
+            ]
+        ]
+
+        events_rows = []
+        for event in registered_events:
+            events_rows.append([
+                Paragraph(event.name, style_body),
+                Paragraph(event.date, style_body),
+                Paragraph(event.time or "-", style_body),
+            ])
+
+        events_table = Table(
+            events_header + events_rows,
+            colWidths=[
+                page_width * 0.50,  # Nome da Atividade
+                page_width * 0.25,  # Data
+                page_width * 0.25,  # Horário
+            ],
+        )
+        events_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 9),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
+                    ("FONTSIZE", (0, 1), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(events_table)
+    else:
+        story.append(Paragraph("Nenhuma atividade registrada.", style_body))
 
     # =====================================================================
     # PÁGINAS INDIVIDUAIS: Detalhes de cada acólito
