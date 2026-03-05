@@ -6,7 +6,7 @@ import calendar
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import data_manager
@@ -56,6 +56,21 @@ def detect_weekday(date_str: str) -> str:
 def today_str() -> str:
     """Retorna a data de hoje no formato DD/MM/YYYY."""
     return datetime.now().strftime("%d/%m/%Y")
+
+
+def next_occurrence_of_day(day_name: str) -> str:
+    """Retorna a data (DD/MM) da próxima ocorrência do dia da semana indicado."""
+    try:
+        target_idx = WEEKDAYS_PT.index(day_name)
+    except ValueError:
+        return ""
+    today = datetime.now()
+    current_idx = today.weekday()
+    days_ahead = target_idx - current_idx
+    if days_ahead <= 0:
+        days_ahead += 7
+    target_date = today + timedelta(days=days_ahead)
+    return target_date.strftime("%d/%m")
 
 
 def names_list_to_text(names: List[str]) -> str:
@@ -157,14 +172,18 @@ class SuspendDialog(BaseDialog):
         self.start_var = tk.StringVar(value=today_str())
         DateEntryFrame(frame, textvariable=self.start_var, width=14, date_format="DD/MM/YYYY").grid(row=1, column=1, padx=8, pady=4)
 
-        ttk.Label(frame, text="Duração:").grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Data de fim (DD/MM/YYYY):").grid(row=2, column=0, sticky="w", pady=4)
+        self.end_var = tk.StringVar()
+        DateEntryFrame(frame, textvariable=self.end_var, width=14, date_format="DD/MM/YYYY").grid(row=2, column=1, padx=8, pady=4)
+
+        ttk.Label(frame, text="Duração:").grid(row=3, column=0, sticky="w", pady=4)
         self.duration_var = tk.StringVar()
         e = ttk.Entry(frame, textvariable=self.duration_var, width=20)
-        e.grid(row=2, column=1, padx=8, pady=4)
+        e.grid(row=3, column=1, padx=8, pady=4)
         e.insert(0, "ex: 2 semanas")
 
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
 
@@ -172,10 +191,99 @@ class SuspendDialog(BaseDialog):
         reason = self.reason_var.get().strip()
         start = self.start_var.get().strip()
         duration = self.duration_var.get().strip()
+        end_date = self.end_var.get().strip()
         if not reason:
             messagebox.showwarning("Aviso", "Informe o motivo.", parent=self)
             return
-        self.result = (reason, start, duration)
+        self.result = (reason, start, duration, end_date)
+        self.destroy()
+
+
+class SelectSuspensionsDialog(BaseDialog):
+    """Diálogo para selecionar quais suspensões ativas desativar."""
+
+    def __init__(self, parent, suspensions: list):
+        self._suspensions = suspensions
+        super().__init__(parent, "Selecionar Suspensões para Levantar")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Selecione as suspensões que deseja levantar:").pack(anchor="w", pady=(0, 6))
+
+        self._vars = []
+        for susp in self._suspensions:
+            var = tk.BooleanVar(value=True)
+            self._vars.append((susp, var))
+            end_info = f" (até {susp.end_date})" if susp.end_date else ""
+            text = f"{susp.reason} - Início: {susp.start_date}{end_info}"
+            ttk.Checkbutton(frame, text=text, variable=var).pack(anchor="w", padx=4, pady=2)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        selected = [susp for susp, var in self._vars if var.get()]
+        if not selected:
+            messagebox.showwarning("Aviso", "Selecione pelo menos uma suspensão.", parent=self)
+            return
+        self.result = selected
+        self.destroy()
+
+
+class EditSuspensionDialog(BaseDialog):
+    """Diálogo para editar uma suspensão."""
+
+    def __init__(self, parent, suspension):
+        self._suspension = suspension
+        super().__init__(parent, "Editar Suspensão")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Motivo:").grid(row=0, column=0, sticky="w", pady=4)
+        self.reason_var = tk.StringVar(value=self._suspension.reason)
+        ttk.Entry(frame, textvariable=self.reason_var, width=30).grid(row=0, column=1, padx=8, pady=4)
+
+        ttk.Label(frame, text="Data de início:").grid(row=1, column=0, sticky="w", pady=4)
+        self.start_var = tk.StringVar(value=self._suspension.start_date)
+        DateEntryFrame(frame, textvariable=self.start_var, width=14, date_format="DD/MM/YYYY").grid(row=1, column=1, padx=8, pady=4)
+
+        ttk.Label(frame, text="Data de fim:").grid(row=2, column=0, sticky="w", pady=4)
+        self.end_var = tk.StringVar(value=self._suspension.end_date)
+        DateEntryFrame(frame, textvariable=self.end_var, width=14, date_format="DD/MM/YYYY").grid(row=2, column=1, padx=8, pady=4)
+
+        ttk.Label(frame, text="Duração:").grid(row=3, column=0, sticky="w", pady=4)
+        self.duration_var = tk.StringVar(value=self._suspension.duration)
+        ttk.Entry(frame, textvariable=self.duration_var, width=20).grid(row=3, column=1, padx=8, pady=4)
+
+        ttk.Label(frame, text="Ativa:").grid(row=4, column=0, sticky="w", pady=4)
+        self.active_var = tk.BooleanVar(value=self._suspension.is_active)
+        ttk.Checkbutton(frame, variable=self.active_var).grid(row=4, column=1, padx=8, pady=4, sticky="w")
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Salvar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        self.result = {
+            "reason": self.reason_var.get().strip(),
+            "start_date": self.start_var.get().strip(),
+            "end_date": self.end_var.get().strip(),
+            "duration": self.duration_var.get().strip(),
+            "is_active": self.active_var.get(),
+        }
         self.destroy()
 
 
@@ -195,7 +303,7 @@ class BonusDialog(BaseDialog):
         frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(frame, text="Quantidade:").grid(row=0, column=0, sticky="w", pady=4)
-        self.amount_var = tk.IntVar(value=1)
+        self.amount_var = tk.StringVar(value="1")
         ttk.Spinbox(frame, from_=1, to=99, textvariable=self.amount_var, width=8).grid(
             row=0, column=1, padx=8, pady=4, sticky="w"
         )
@@ -211,7 +319,9 @@ class BonusDialog(BaseDialog):
 
     def _ok(self):
         try:
-            amount = int(self.amount_var.get())
+            amount = int(self.amount_var.get().strip())
+            if amount < 1:
+                amount = 1
         except (ValueError, tk.TclError):
             amount = 1
         desc = self.desc_var.get().strip()
@@ -290,7 +400,7 @@ class AddEventDialog(BaseDialog):
 
         ttk.Label(frame, text="Horário (opcional, HH:MM):").grid(row=2, column=0, sticky="w", pady=4)
         self.time_var = tk.StringVar()
-        ttk.Entry(frame, textvariable=self.time_var, width=10).grid(row=2, column=1, padx=8, pady=4, sticky="w")
+        TimeEntryFrame(frame, textvariable=self.time_var, width=10).grid(row=2, column=1, padx=8, pady=4, sticky="w")
 
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
@@ -388,10 +498,34 @@ class CalendarDialog(BaseDialog):
     def __init__(self, parent, initial_date: str = "", date_format: str = "DD/MM/YYYY"):
         self._initial_date = initial_date
         self._date_format = date_format  # "DD/MM/YYYY" or "DD/MM"
+        # Capture mouse position before dialog is built
+        try:
+            self._mouse_x = parent.winfo_pointerx()
+            self._mouse_y = parent.winfo_pointery()
+        except Exception:
+            self._mouse_x = None
+            self._mouse_y = None
         super().__init__(parent, "Selecionar Data")
         self._build()
-        self._center()
+        self._position_near_mouse()
         self.wait_window()
+
+    def _position_near_mouse(self):
+        """Position the dialog near the mouse cursor."""
+        self.update_idletasks()
+        if self._mouse_x is not None and self._mouse_y is not None:
+            w = self.winfo_reqwidth()
+            h = self.winfo_reqheight()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = self._mouse_x - w // 2
+            y = self._mouse_y - 10
+            # Keep within screen bounds
+            x = max(0, min(x, sw - w))
+            y = max(0, min(y, sh - h))
+            self.geometry(f"+{x}+{y}")
+        else:
+            self._center()
 
     def _build(self):
         self._cal_module = calendar
@@ -510,6 +644,128 @@ class DateEntryFrame(ttk.Frame):
             self._var.set(dlg.result)
 
 
+class TimePickerDialog(BaseDialog):
+    """Mini janela para seleção de horário com mouse."""
+
+    def __init__(self, parent, initial_time: str = ""):
+        self._initial_time = initial_time
+        try:
+            self._mouse_x = parent.winfo_pointerx()
+            self._mouse_y = parent.winfo_pointery()
+        except Exception:
+            self._mouse_x = None
+            self._mouse_y = None
+        super().__init__(parent, "Selecionar Horário")
+        self._build()
+        self._position_near_mouse()
+        self.wait_window()
+
+    def _position_near_mouse(self):
+        """Position the dialog near the mouse cursor."""
+        self.update_idletasks()
+        if self._mouse_x is not None and self._mouse_y is not None:
+            w = self.winfo_reqwidth()
+            h = self.winfo_reqheight()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = self._mouse_x - w // 2
+            y = self._mouse_y - 10
+            x = max(0, min(x, sw - w))
+            y = max(0, min(y, sh - h))
+            self.geometry(f"+{x}+{y}")
+        else:
+            self._center()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=8)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Selecione o horário:", font=("TkDefaultFont", 10, "bold")).pack(
+            pady=(0, 6)
+        )
+
+        # Parse initial time
+        init_h, init_m = 8, 0
+        if self._initial_time:
+            try:
+                parts = self._initial_time.strip().split(":")
+                init_h = int(parts[0])
+                if len(parts) > 1:
+                    init_m = int(parts[1])
+            except (ValueError, IndexError):
+                pass
+
+        time_frame = ttk.Frame(frame)
+        time_frame.pack(pady=4)
+
+        ttk.Label(time_frame, text="Hora:").pack(side=tk.LEFT)
+        self._hour_var = tk.StringVar(value=str(init_h))
+        hour_spin = ttk.Spinbox(
+            time_frame, from_=0, to=23, textvariable=self._hour_var,
+            width=4, wrap=True, format="%02.0f"
+        )
+        hour_spin.pack(side=tk.LEFT, padx=2)
+
+        ttk.Label(time_frame, text=":").pack(side=tk.LEFT)
+
+        self._min_var = tk.StringVar(value=f"{init_m:02d}")
+        min_spin = ttk.Spinbox(
+            time_frame, from_=0, to=59, textvariable=self._min_var,
+            width=4, wrap=True, format="%02.0f", increment=5
+        )
+        min_spin.pack(side=tk.LEFT, padx=2)
+
+        # Quick hour buttons
+        ttk.Label(frame, text="Horários comuns:", foreground="gray").pack(anchor="w", pady=(6, 2))
+        quick_frame = ttk.Frame(frame)
+        quick_frame.pack(fill=tk.X)
+        common_times = [
+            "06:00", "07:00", "08:00", "09:00", "10:00",
+            "11:00", "12:00", "14:00", "15:00", "16:00",
+            "17:00", "18:00", "19:00", "19:30", "20:00",
+        ]
+        for i, t in enumerate(common_times):
+            ttk.Button(
+                quick_frame, text=t, width=5,
+                command=lambda t=t: self._select_quick(t),
+            ).grid(row=i // 5, column=i % 5, padx=1, pady=1)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=8)
+        ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _select_quick(self, time_str: str):
+        self.result = time_str
+        self.destroy()
+
+    def _ok(self):
+        try:
+            h = int(self._hour_var.get())
+            m = int(self._min_var.get())
+            self.result = f"{h:02d}:{m:02d}"
+        except (ValueError, tk.TclError):
+            self.result = self._hour_var.get() + ":" + self._min_var.get()
+        self.destroy()
+
+
+class TimeEntryFrame(ttk.Frame):
+    """Frame composto com Entry de hora e botão de relógio."""
+
+    def __init__(self, parent, textvariable: tk.StringVar, width: int = 6, **kwargs):
+        super().__init__(parent, **kwargs)
+        self._var = textvariable
+        ttk.Entry(self, textvariable=textvariable, width=width).pack(side=tk.LEFT)
+        ttk.Button(self, text="🕐", width=3, command=self._open_time_picker).pack(
+            side=tk.LEFT, padx=1
+        )
+
+    def _open_time_picker(self):
+        dlg = TimePickerDialog(self, self._var.get())
+        if dlg.result:
+            self._var.set(dlg.result)
+
+
 # ---------------------------------------------------------------------------
 # Painel de slot de escala (widget reutilizável)
 # ---------------------------------------------------------------------------
@@ -521,7 +777,8 @@ class ScheduleSlotCard(ttk.LabelFrame):
     """
 
     def __init__(self, parent, slot: ScheduleSlot, app, **kwargs):
-        super().__init__(parent, text=f"Horário #{slot.id[:6]}", padding=6, **kwargs)
+        title = f"⛪ Evento Geral #{slot.id[:6]}" if slot.is_general_event else f"Horário #{slot.id[:6]}"
+        super().__init__(parent, text=title, padding=6, **kwargs)
         self.slot = slot
         self.app = app
         self._acolyte_labels: dict = {}
@@ -541,7 +798,7 @@ class ScheduleSlotCard(ttk.LabelFrame):
         ttk.Label(row1, text="Hora:").pack(side=tk.LEFT, padx=(6, 0))
         self.time_var = tk.StringVar(value=self.slot.time)
         self.time_var.trace_add("write", self._on_field_change)
-        ttk.Entry(row1, textvariable=self.time_var, width=6).pack(side=tk.LEFT, padx=2)
+        TimeEntryFrame(row1, textvariable=self.time_var, width=6).pack(side=tk.LEFT, padx=2)
 
         ttk.Label(row1, text="Descrição:").pack(side=tk.LEFT, padx=(6, 0))
         self.desc_var = tk.StringVar(value=self.slot.description)
@@ -620,6 +877,13 @@ class ScheduleSlotCard(ttk.LabelFrame):
             widget.destroy()
         self._acolyte_labels.clear()
 
+        if self.slot.is_general_event:
+            ttk.Label(
+                self.acolyte_frame, text="TODOS",
+                font=("TkDefaultFont", 10, "bold"), foreground="blue"
+            ).pack(side=tk.LEFT)
+            return
+
         if not self.slot.acolyte_ids:
             ttk.Label(self.acolyte_frame, text="(nenhum acólito)", foreground="gray").pack(side=tk.LEFT)
             return
@@ -691,7 +955,7 @@ class StandardSlotsDialog(BaseDialog):
 
         ttk.Label(add_frame, text="Hora:").grid(row=1, column=0, sticky="w", pady=2)
         self._time_var = tk.StringVar()
-        ttk.Entry(add_frame, textvariable=self._time_var, width=8).grid(
+        TimeEntryFrame(add_frame, textvariable=self._time_var, width=8).grid(
             row=1, column=1, padx=4, pady=2, sticky="w"
         )
 
@@ -748,13 +1012,14 @@ class StandardSlotsDialog(BaseDialog):
             messagebox.showinfo("Aviso", "Nenhum horário padrão cadastrado.", parent=self)
             return
         for ss in self.app.standard_slots:
-            slot = ScheduleSlot(id=str(uuid.uuid4()), date="", day=ss.day, time=ss.time, description=ss.description)
+            auto_date = next_occurrence_of_day(ss.day)
+            slot = ScheduleSlot(id=str(uuid.uuid4()), date=auto_date, day=ss.day, time=ss.time, description=ss.description)
             self.app.schedule_slots.append(slot)
         self.app.schedule_tab.load_slots_from_data()
         self.app.save()
         messagebox.showinfo(
             "Concluído",
-            f"{len(self.app.standard_slots)} horário(s) padrão adicionado(s) à escala.",
+            f"{len(self.app.standard_slots)} horário(s) padrão adicionado(s) à escala.\nDatas preenchidas automaticamente.",
             parent=self,
         )
 
@@ -788,6 +1053,7 @@ class ScheduleTab(ttk.Frame):
         btn_row = ttk.Frame(left)
         btn_row.pack(fill=tk.X, pady=2)
         ttk.Button(btn_row, text="➕ Adicionar Horário", command=self._add_slot).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="⛪ Evento Geral", command=self._add_general_event_slot).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_row, text="📋 Horários Padrão", command=self._manage_standard_slots).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_row, text="🗑️ Limpar Escala", command=self._clear_schedule).pack(side=tk.LEFT, padx=4)
 
@@ -925,6 +1191,26 @@ class ScheduleTab(ttk.Frame):
         self._slot_cards.append(card)
         self.app.save()
 
+    def _add_general_event_slot(self):
+        """Add a slot linked to a general event."""
+        dlg = AddEventDialog(self.app.root)
+        if dlg.result:
+            name, date, time = dlg.result
+            slot = ScheduleSlot(
+                id=str(uuid.uuid4()),
+                date=date,
+                day=detect_weekday(date),
+                time=time,
+                description=name,
+                is_general_event=True,
+                general_event_name=name,
+            )
+            self.app.schedule_slots.append(slot)
+            card = ScheduleSlotCard(self.slots_frame, slot, self.app)
+            card.pack(fill=tk.X, padx=4, pady=4)
+            self._slot_cards.append(card)
+            self.app.save()
+
     def _clear_schedule(self):
         if not self.app.schedule_slots:
             return
@@ -957,17 +1243,22 @@ class ScheduleTab(ttk.Frame):
             return
 
         lines = ["*ESCALA DA SEMANA*\n"]
+        general_event_slots = []
         for slot in self.app.schedule_slots:
             header = f"*{slot.day}, {slot.date} - {slot.time}:*"
             lines.append(header)
             if slot.description:
                 lines.append(f"_{slot.description}_")
-            names = []
-            for aid in slot.acolyte_ids:
-                ac = self.app.find_acolyte(aid)
-                if ac:
-                    names.append(ac.name)
-            lines.append(names_list_to_text(names))
+            if slot.is_general_event:
+                lines.append("*TODOS*")
+                general_event_slots.append(slot)
+            else:
+                names = []
+                for aid in slot.acolyte_ids:
+                    ac = self.app.find_acolyte(aid)
+                    if ac:
+                        names.append(ac.name)
+                lines.append(names_list_to_text(names))
             lines.append("")
 
         text = "\n".join(lines).strip()
@@ -994,18 +1285,29 @@ class ScheduleTab(ttk.Frame):
 
         # Atualiza contadores e histórico de cada acólito
         for slot in self.app.schedule_slots:
-            for aid in slot.acolyte_ids:
-                ac = self.app.find_acolyte(aid)
-                if ac:
-                    ac.times_scheduled += 1
-                    entry = ScheduleHistoryEntry(
-                        schedule_id=slot.id,
-                        date=slot.date,
-                        day=slot.day,
-                        time=slot.time,
-                        description=slot.description,
-                    )
-                    ac.schedule_history.append(entry)
+            if not slot.is_general_event:
+                for aid in slot.acolyte_ids:
+                    ac = self.app.find_acolyte(aid)
+                    if ac:
+                        ac.times_scheduled += 1
+                        entry = ScheduleHistoryEntry(
+                            schedule_id=slot.id,
+                            date=slot.date,
+                            day=slot.day,
+                            time=slot.time,
+                            description=slot.description,
+                        )
+                        ac.schedule_history.append(entry)
+
+        # Register general events
+        for slot in general_event_slots:
+            ev = GeneralEvent(
+                id=str(uuid.uuid4()),
+                name=slot.general_event_name or slot.description,
+                date=slot.date,
+                time=slot.time,
+            )
+            self.app.general_events.append(ev)
 
         # Limpa os slots após finalizar
         self.app.schedule_slots.clear()
@@ -1016,6 +1318,7 @@ class ScheduleTab(ttk.Frame):
         self.app.save()
         self.refresh_acolyte_list()
         self.app.acolytes_tab.refresh_list()
+        self.app.events_tab.refresh_list()
 
         # Refresh history tab
         if hasattr(self.app, 'history_tab'):
@@ -1060,10 +1363,10 @@ class EventsTab(ttk.Frame):
 
         ttk.Button(left, text="🗑️ Remover Evento", command=self._remove_event).pack(fill=tk.X, pady=4)
 
-        # Botão finalizar eventos
+        # Botão registrar eventos
         ttk.Button(
             left,
-            text="✅ Finalizar Eventos",
+            text="✅ Registrar Eventos",
             command=self._finalize_events,
         ).pack(fill=tk.X, pady=4)
 
@@ -1095,7 +1398,7 @@ class EventsTab(ttk.Frame):
 
         ttk.Label(fields, text="Horário:").grid(row=2, column=0, sticky="w", pady=4)
         self.ev_time_var = tk.StringVar()
-        ttk.Entry(fields, textvariable=self.ev_time_var, width=10).grid(row=2, column=1, padx=6, pady=4, sticky="w")
+        TimeEntryFrame(fields, textvariable=self.ev_time_var, width=10).grid(row=2, column=1, padx=6, pady=4, sticky="w")
 
         # Participantes
         ttk.Label(self.detail_frame, text="Participantes:", font=("TkDefaultFont", 10, "bold")).pack(
@@ -1220,6 +1523,11 @@ class EventsTab(ttk.Frame):
         if not self.app.general_events:
             messagebox.showinfo("Aviso", "Nenhum evento cadastrado.")
             return
+        if not messagebox.askyesno(
+            "Confirmar",
+            "Deseja registrar todos os eventos? Os eventos serão contabilizados e removidos da aba.",
+        ):
+            return
         batch_id = str(uuid.uuid4())
         entries = []
         count = 0
@@ -1249,10 +1557,15 @@ class EventsTab(ttk.Frame):
             entries=entries,
         )
         self.app.finalized_event_batches.append(batch)
+        # Clear events after registering
+        self.app.general_events.clear()
+        self._current_event = None
+        self._hide_detail()
+        self.refresh_list()
         self.app.save()
         if hasattr(self.app, 'history_tab'):
             self.app.history_tab.refresh()
-        messagebox.showinfo("Concluído", f"Eventos finalizados! {count} registros adicionados.")
+        messagebox.showinfo("Concluído", f"Eventos registrados! {count} registros adicionados.")
 
 
 # ---------------------------------------------------------------------------
@@ -1293,6 +1606,7 @@ class AcolytesTab(ttk.Frame):
 
         # Botões do rodapé
         ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=4)
+        ttk.Button(left, text="📊 Visão Geral", command=self._show_overview_table).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="📕 Fechar Semestre", command=self._close_semester).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="📄 Gerar Relatório PDF", command=self._generate_report).pack(fill=tk.X, pady=2)
 
@@ -1337,7 +1651,7 @@ class AcolytesTab(ttk.Frame):
         ttk.Button(bonus_frame, text="Dar Bônus", command=self._give_bonus).pack(side=tk.LEFT, padx=2)
         ttk.Button(bonus_frame, text="Usar Bônus", command=self._use_bonus).pack(side=tk.LEFT, padx=2)
         ttk.Label(bonus_frame, text="Qtd:").pack(side=tk.LEFT, padx=(6, 0))
-        self.bonus_direct_var = tk.IntVar(value=0)
+        self.bonus_direct_var = tk.StringVar(value="0")
         self.bonus_spin = ttk.Spinbox(
             bonus_frame,
             from_=0,
@@ -1370,15 +1684,31 @@ class AcolytesTab(ttk.Frame):
         self._tree_schedule = self._make_tree(
             self._tab_schedule, ("Data", "Dia", "Horário", "Descrição"), (80, 120, 70, 200)
         )
+        # Add edit/delete buttons for schedule history
+        sched_btn_frame = ttk.Frame(self._tab_schedule)
+        sched_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(sched_btn_frame, text="🗑️ Excluir Entrada", command=self._delete_schedule_entry).pack(side=tk.LEFT, padx=2)
+
         self._tree_events = self._make_tree(
             self._tab_events, ("Nome do Evento", "Data", "Horário"), (220, 80, 80)
         )
+        # Add edit/delete buttons for event history
+        event_btn_frame = ttk.Frame(self._tab_events)
+        event_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(event_btn_frame, text="🗑️ Excluir Entrada", command=self._delete_event_entry).pack(side=tk.LEFT, padx=2)
+
         self._tree_absences = self._make_tree(
             self._tab_absences, ("Data", "Descrição"), (100, 300)
         )
         self._tree_suspensions = self._make_tree(
-            self._tab_suspensions, ("Motivo", "Início", "Duração", "Ativa"), (200, 90, 100, 60)
+            self._tab_suspensions, ("Motivo", "Início", "Fim", "Duração", "Ativa"), (160, 90, 90, 80, 60)
         )
+        # Add edit/delete buttons for suspensions
+        susp_btn_frame = ttk.Frame(self._tab_suspensions)
+        susp_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(susp_btn_frame, text="✏️ Editar Suspensão", command=self._edit_suspension).pack(side=tk.LEFT, padx=2)
+        ttk.Button(susp_btn_frame, text="🗑️ Excluir Suspensão", command=self._delete_suspension).pack(side=tk.LEFT, padx=2)
+
         self._tree_bonus = self._make_tree(
             self._tab_bonus, ("Tipo", "Quantidade", "Descrição", "Data"), (70, 80, 220, 90)
         )
@@ -1415,7 +1745,21 @@ class AcolytesTab(ttk.Frame):
 
         for i, ac in enumerate(sorted_acs):
             if ac.is_suspended:
-                self.acolyte_listbox.itemconfig(i, foreground="red")
+                # Check for expired suspension end_date
+                has_expired = False
+                for s in ac.suspensions:
+                    if s.is_active and s.end_date:
+                        try:
+                            end_dt = datetime.strptime(s.end_date, "%d/%m/%Y")
+                            if end_dt.date() <= datetime.now().date():
+                                has_expired = True
+                                break
+                        except ValueError:
+                            pass
+                if has_expired:
+                    self.acolyte_listbox.itemconfig(i, foreground="#B8860B")  # Dark yellow
+                else:
+                    self.acolyte_listbox.itemconfig(i, foreground="red")
 
         # Restaura seleção
         if sel_id:
@@ -1425,6 +1769,10 @@ class AcolytesTab(ttk.Frame):
                     break
 
     def _on_acolyte_select(self, event=None):
+        # Clean up overview if visible
+        if hasattr(self, '_overview_frame') and self._overview_frame:
+            self._overview_frame.destroy()
+            self._overview_frame = None
         sel = self.acolyte_listbox.curselection()
         if not sel:
             self._hide_detail()
@@ -1449,7 +1797,29 @@ class AcolytesTab(ttk.Frame):
         if not ac:
             return
         self._show_detail()
-        susp_text = " 🔴 SUSPENSO" if ac.is_suspended else ""
+
+        # Check for expired suspensions
+        self._check_suspension_expiry(ac)
+
+        susp_text = ""
+        if ac.is_suspended:
+            # Check if any active suspension has expired end_date
+            # Uses <= so suspension is flagged on its end_date (the date is "reached")
+            has_expired = False
+            for s in ac.suspensions:
+                if s.is_active and s.end_date:
+                    try:
+                        end_dt = datetime.strptime(s.end_date, "%d/%m/%Y")
+                        if end_dt.date() <= datetime.now().date():
+                            has_expired = True
+                            break
+                    except ValueError:
+                        pass
+            if has_expired:
+                susp_text = " 🟡 LEVANTAR SUSPENSÃO"
+            else:
+                susp_text = " 🔴 SUSPENSO"
+
         self.name_label.config(text=f"{ac.name}{susp_text}")
         self.summary_label.config(
             text=(
@@ -1457,7 +1827,7 @@ class AcolytesTab(ttk.Frame):
                 f"Suspensões: {ac.suspension_count}  |  Bônus: {ac.bonus_count}"
             )
         )
-        self.bonus_direct_var.set(ac.bonus_count)
+        self.bonus_direct_var.set(str(ac.bonus_count))
 
         # Atualiza as tabelas
         self._refresh_tree(self._tree_schedule, [
@@ -1470,9 +1840,22 @@ class AcolytesTab(ttk.Frame):
             (a.date, a.description or "-") for a in ac.absences
         ])
         self._refresh_tree(self._tree_suspensions, [
-            (s.reason, s.start_date, s.duration, "Sim" if s.is_active else "Não")
+            (s.reason, s.start_date, s.end_date or "-", s.duration, "Sim" if s.is_active else "Não")
             for s in ac.suspensions
         ])
+        # Highlight expired suspensions in yellow
+        for i, s in enumerate(ac.suspensions):
+            if s.is_active and s.end_date:
+                try:
+                    end_dt = datetime.strptime(s.end_date, "%d/%m/%Y")
+                    if end_dt.date() <= datetime.now().date():
+                        items = self._tree_suspensions.get_children()
+                        if i < len(items):
+                            self._tree_suspensions.tag_configure("expired", background="#FFFF99")
+                            self._tree_suspensions.item(items[i], tags=("expired",))
+                except ValueError:
+                    pass
+
         self._refresh_tree(self._tree_bonus, [
             ("Ganho" if b.type == "earn" else "Usado", str(b.amount), b.description or "-", b.date)
             for b in ac.bonus_movements
@@ -1559,12 +1942,13 @@ class AcolytesTab(ttk.Frame):
             return
         dlg = SuspendDialog(self.app.root)
         if dlg.result:
-            reason, start, duration = dlg.result
+            reason, start, duration, end_date = dlg.result
             susp = Suspension(
                 id=str(uuid.uuid4()),
                 reason=reason,
                 start_date=start,
                 duration=duration,
+                end_date=end_date,
                 is_active=True,
             )
             ac = self._current_acolyte
@@ -1579,17 +1963,20 @@ class AcolytesTab(ttk.Frame):
         if not self._current_acolyte:
             return
         ac = self._current_acolyte
-        if not ac.is_suspended:
-            messagebox.showinfo("Aviso", f"{ac.name} não está suspenso.")
+        active_suspensions = [s for s in ac.suspensions if s.is_active]
+        if not active_suspensions:
+            messagebox.showinfo("Aviso", f"{ac.name} não possui suspensões ativas.")
             return
-        active = ac.active_suspension
-        if active:
-            active.is_active = False
-        ac.is_suspended = False
-        self._show_acolyte_detail()
-        self.refresh_list()
-        self.app.schedule_tab.refresh_acolyte_list()
-        self.app.save()
+        dlg = SelectSuspensionsDialog(self.app.root, active_suspensions)
+        if dlg.result:
+            for susp in dlg.result:
+                susp.is_active = False
+            # Check if any active suspensions remain
+            ac.is_suspended = any(s.is_active for s in ac.suspensions)
+            self._show_acolyte_detail()
+            self.refresh_list()
+            self.app.schedule_tab.refresh_acolyte_list()
+            self.app.save()
 
     def _add_absence(self):
         if not self._current_acolyte:
@@ -1650,7 +2037,7 @@ class AcolytesTab(ttk.Frame):
         if not self._current_acolyte:
             return
         try:
-            new_val = int(self.bonus_direct_var.get())
+            new_val = int(self.bonus_direct_var.get().strip())
         except (ValueError, tk.TclError):
             return
         if new_val < 0:
@@ -1665,6 +2052,197 @@ class AcolytesTab(ttk.Frame):
             )
         )
         self.app.save()
+
+    def _check_suspension_expiry(self, ac):
+        """Check if any suspension end_date has been reached."""
+        for s in ac.suspensions:
+            if s.is_active and s.end_date:
+                try:
+                    end_dt = datetime.strptime(s.end_date, "%d/%m/%Y")
+                    if end_dt.date() <= datetime.now().date():
+                        # Mark visually but don't auto-deactivate
+                        pass
+                except ValueError:
+                    pass
+
+    def _edit_suspension(self):
+        """Edit the selected suspension."""
+        if not self._current_acolyte:
+            return
+        sel = self._tree_suspensions.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma suspensão para editar.")
+            return
+        idx = self._tree_suspensions.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.suspensions):
+            return
+        susp = ac.suspensions[idx]
+        dlg = EditSuspensionDialog(self.app.root, susp)
+        if dlg.result:
+            susp.reason = dlg.result["reason"]
+            susp.start_date = dlg.result["start_date"]
+            susp.end_date = dlg.result["end_date"]
+            susp.duration = dlg.result["duration"]
+            susp.is_active = dlg.result["is_active"]
+            ac.is_suspended = any(s.is_active for s in ac.suspensions)
+            self._show_acolyte_detail()
+            self.refresh_list()
+            self.app.schedule_tab.refresh_acolyte_list()
+            self.app.save()
+
+    def _delete_suspension(self):
+        """Delete the selected suspension."""
+        if not self._current_acolyte:
+            return
+        sel = self._tree_suspensions.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma suspensão para excluir.")
+            return
+        idx = self._tree_suspensions.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.suspensions):
+            return
+        susp = ac.suspensions[idx]
+        if not messagebox.askyesno("Confirmar", f"Excluir a suspensão '{susp.reason}'?"):
+            return
+        ac.suspensions.pop(idx)
+        ac.is_suspended = any(s.is_active for s in ac.suspensions)
+        self._show_acolyte_detail()
+        self.refresh_list()
+        self.app.schedule_tab.refresh_acolyte_list()
+        self.app.save()
+
+    def _delete_schedule_entry(self):
+        """Delete the selected schedule history entry."""
+        if not self._current_acolyte:
+            return
+        sel = self._tree_schedule.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma entrada de escala para excluir.")
+            return
+        idx = self._tree_schedule.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.schedule_history):
+            return
+        entry = ac.schedule_history[idx]
+        if not messagebox.askyesno("Confirmar", f"Excluir entrada de escala ({entry.date} {entry.time})?"):
+            return
+        ac.schedule_history.pop(idx)
+        if ac.times_scheduled > 0:
+            ac.times_scheduled -= 1
+        self._show_acolyte_detail()
+        self.app.save()
+
+    def _delete_event_entry(self):
+        """Delete the selected event history entry."""
+        if not self._current_acolyte:
+            return
+        sel = self._tree_events.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma entrada de evento para excluir.")
+            return
+        idx = self._tree_events.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.event_history):
+            return
+        entry = ac.event_history[idx]
+        if not messagebox.askyesno("Confirmar", f"Excluir entrada de evento '{entry.name}'?"):
+            return
+        ac.event_history.pop(idx)
+        self._show_acolyte_detail()
+        self.app.save()
+
+    def _show_overview_table(self):
+        """Show an overview table of all acolytes in the main panel."""
+        if not self.app.acolytes:
+            messagebox.showinfo("Aviso", "Nenhum acólito cadastrado.")
+            return
+        # Show the overview in the detail panel
+        self._current_acolyte = None
+        self.acolyte_listbox.selection_clear(0, tk.END)
+        self.no_selection_label.pack_forget()
+        self.detail_frame.pack_forget()
+
+        # Remove existing overview if any
+        if hasattr(self, '_overview_frame') and self._overview_frame:
+            self._overview_frame.destroy()
+
+        self._overview_frame = ttk.Frame(self.right)
+        self._overview_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            self._overview_frame, text="📊 Visão Geral dos Acólitos",
+            font=("TkDefaultFont", 12, "bold")
+        ).pack(anchor="w", pady=(4, 8))
+
+        tree_frame = ttk.Frame(self._overview_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        columns = ("Nome", "Escalas", "Eventos", "Faltas", "Suspensões", "Bônus", "Status")
+        overview_tree = ttk.Treeview(
+            tree_frame, columns=columns, show="headings",
+            yscrollcommand=sb.set
+        )
+        sb.config(command=overview_tree.yview)
+
+        widths = [160, 70, 70, 60, 80, 60, 100]
+        for col, w in zip(columns, widths):
+            overview_tree.heading(col, text=col)
+            overview_tree.column(col, width=w, minwidth=40)
+
+        overview_tree.tag_configure("suspended", background="#FFCCCC")
+        overview_tree.tag_configure("expiring", background="#FFFFCC")
+
+        sorted_acs = sorted(self.app.acolytes, key=lambda a: a.name.lower())
+        for ac in sorted_acs:
+            status = "Ativo"
+            tag = ""
+            if ac.is_suspended:
+                # Check for expiring suspensions
+                has_expired = False
+                for s in ac.suspensions:
+                    if s.is_active and s.end_date:
+                        try:
+                            end_dt = datetime.strptime(s.end_date, "%d/%m/%Y")
+                            if end_dt.date() <= datetime.now().date():
+                                has_expired = True
+                                break
+                        except ValueError:
+                            pass
+                if has_expired:
+                    status = "Levantar Suspensão"
+                    tag = "expiring"
+                else:
+                    status = "Suspenso"
+                    tag = "suspended"
+
+            overview_tree.insert("", tk.END, values=(
+                ac.name,
+                ac.times_scheduled,
+                len(ac.event_history),
+                ac.absence_count,
+                ac.suspension_count,
+                ac.bonus_count,
+                status,
+            ), tags=(tag,) if tag else ())
+
+        overview_tree.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Button(
+            self._overview_frame, text="Fechar Visão Geral",
+            command=self._close_overview
+        ).pack(pady=8)
+
+    def _close_overview(self):
+        """Close the overview table and restore the normal view."""
+        if hasattr(self, '_overview_frame') and self._overview_frame:
+            self._overview_frame.destroy()
+            self._overview_frame = None
+        self.no_selection_label.pack(pady=20)
 
     def _close_semester(self):
         if not self.app.acolytes:
@@ -1741,7 +2319,7 @@ class HistoryTab(ttk.Frame):
         self._sched_frame = ttk.Frame(nb)
         self._event_frame = ttk.Frame(nb)
         nb.add(self._sched_frame, text="📅 Escalas Geradas")
-        nb.add(self._event_frame, text="🎉 Eventos Finalizados")
+        nb.add(self._event_frame, text="⛪ Eventos Finalizados")
 
         self._build_schedule_history()
         self._build_event_history()
@@ -1764,6 +2342,9 @@ class HistoryTab(ttk.Frame):
         sb.config(command=self._sched_listbox.yview)
         self._sched_listbox.bind("<<ListboxSelect>>", self._on_sched_select)
 
+        ttk.Button(left, text="✏️ Editar Escala", command=self._edit_schedule).pack(
+            fill=tk.X, pady=2
+        )
         ttk.Button(left, text="🗑️ Excluir Escala", command=self._delete_schedule).pack(
             fill=tk.X, pady=4
         )
@@ -1832,7 +2413,7 @@ class HistoryTab(ttk.Frame):
         sb.config(command=self._ev_listbox.yview)
         self._ev_listbox.bind("<<ListboxSelect>>", self._on_ev_select)
 
-        ttk.Button(left, text="🗑️ Excluir Batch", command=self._delete_event_batch).pack(
+        ttk.Button(left, text="🗑️ Excluir Evento", command=self._delete_event_batch).pack(
             fill=tk.X, pady=4
         )
 
@@ -1938,6 +2519,64 @@ class HistoryTab(ttk.Frame):
                 "", tk.END,
                 values=(entry.name, entry.date, entry.time or "-", ", ".join(names) or "-")
             )
+
+    def _edit_schedule(self):
+        """Load a generated schedule back into the schedule tab for editing."""
+        sel = self._sched_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma escala para editar.")
+            return
+        idx = sel[0]
+        if idx >= len(self.app.generated_schedules):
+            return
+        gs = self.app.generated_schedules[idx]
+        if not messagebox.askyesno(
+            "Editar Escala",
+            f"Deseja carregar a escala de {gs.generated_at} para edição?\n\n"
+            "As contagens dos acólitos serão revertidas e a escala será movida para a aba de criação.\n"
+            "Horários existentes na aba de criação serão mantidos.",
+        ):
+            return
+
+        # Reverse acolyte changes
+        slot_ids = {s.slot_id for s in gs.slots}
+        for slot in gs.slots:
+            for aid in slot.acolyte_ids:
+                ac = self.app.find_acolyte(aid)
+                if ac:
+                    if ac.times_scheduled > 0:
+                        ac.times_scheduled -= 1
+                    ac.schedule_history = [
+                        e for e in ac.schedule_history if e.schedule_id not in slot_ids
+                    ]
+
+        # Create schedule slots from the snapshot
+        for snap in gs.slots:
+            slot = ScheduleSlot(
+                id=snap.slot_id,
+                date=snap.date,
+                day=snap.day,
+                time=snap.time,
+                description=snap.description,
+                acolyte_ids=list(snap.acolyte_ids),
+            )
+            self.app.schedule_slots.append(slot)
+
+        # Remove from generated schedules
+        self.app.generated_schedules.pop(idx)
+        self.app.save()
+
+        # Refresh UI
+        self._refresh_sched_list()
+        self._sched_detail_label.pack(pady=20)
+        self._sched_detail_frame.pack_forget()
+        self.app.schedule_tab.load_slots_from_data()
+        self.app.schedule_tab.refresh_acolyte_list()
+        self.app.acolytes_tab.refresh_list()
+
+        # Switch to schedule tab
+        self.app.notebook.select(self.app.schedule_tab)
+        messagebox.showinfo("Concluído", "Escala carregada para edição na aba 'Criar Escala'.")
 
     def _delete_schedule(self):
         sel = self._sched_listbox.curselection()
@@ -2062,7 +2701,7 @@ class App:
         self.history_tab = HistoryTab(self.notebook, self)
 
         self.notebook.add(self.schedule_tab, text="📅 Criar Escala")
-        self.notebook.add(self.events_tab, text="🎉 Eventos Gerais")
+        self.notebook.add(self.events_tab, text="⛪ Eventos Gerais")
         self.notebook.add(self.acolytes_tab, text="👥 Acólitos")
         self.notebook.add(self.history_tab, text="📜 Histórico")
 
