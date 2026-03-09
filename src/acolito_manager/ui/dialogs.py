@@ -560,8 +560,13 @@ class AddEscalaGeralDialog(BaseDialog):
             frame, text="Incluir como atividade", variable=self.include_as_activity_var
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
 
+        self.include_as_schedule_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            frame, text="Incluir como escala", variable=self.include_as_schedule_var
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=4)
+
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
 
@@ -575,7 +580,16 @@ class AddEscalaGeralDialog(BaseDialog):
         if not date:
             messagebox.showwarning("Aviso", "Informe a data da escala geral.", parent=self)
             return
-        self.result = (name, date, time, self.include_as_activity_var.get())
+        include_activity = self.include_as_activity_var.get()
+        include_schedule = self.include_as_schedule_var.get()
+        if not include_activity and not include_schedule:
+            messagebox.showwarning(
+                "Aviso",
+                "Selecione pelo menos uma opção: incluir como atividade ou como escala.",
+                parent=self,
+            )
+            return
+        self.result = (name, date, time, include_activity, include_schedule)
         self.destroy()
 
 

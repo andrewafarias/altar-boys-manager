@@ -397,7 +397,7 @@ class ScheduleTab(ttk.Frame):
     def _add_general_event_slot(self):
         dlg = AddEscalaGeralDialog(self.app.root)
         if dlg.result:
-            name, date, time, include_as_activity = dlg.result
+            name, date, time, include_as_activity, include_as_schedule = dlg.result
 
             all_acolyte_ids = [ac.id for ac in self.app.acolytes]
             day = detect_weekday(date)
@@ -432,7 +432,7 @@ class ScheduleTab(ttk.Frame):
                 is_general_event=True,
                 general_event_name=name,
                 include_as_activity=include_as_activity,
-                include_as_schedule=True,
+                include_as_schedule=include_as_schedule,
             )
             self.app.schedule_slots.append(slot)
             card = ScheduleSlotCard(self.slots_frame, slot, self.app)
@@ -511,18 +511,19 @@ class ScheduleTab(ttk.Frame):
         self.app.generated_schedules.append(gen_schedule)
 
         for slot in self.app.schedule_slots:
-            for aid in slot.acolyte_ids:
-                ac = self.app.find_acolyte(aid)
-                if ac:
-                    ac.times_scheduled += 1
-                    entry = ScheduleHistoryEntry(
-                        schedule_id=slot.id,
-                        date=slot.date,
-                        day=slot.day,
-                        time=slot.time,
-                        description=slot.description,
-                    )
-                    ac.schedule_history.append(entry)
+            if not slot.is_general_event or slot.include_as_schedule:
+                for aid in slot.acolyte_ids:
+                    ac = self.app.find_acolyte(aid)
+                    if ac:
+                        ac.times_scheduled += 1
+                        entry = ScheduleHistoryEntry(
+                            schedule_id=slot.id,
+                            date=slot.date,
+                            day=slot.day,
+                            time=slot.time,
+                            description=slot.description,
+                        )
+                        ac.schedule_history.append(entry)
 
         if general_event_slots:
             batch_id = str(uuid.uuid4())
