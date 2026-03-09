@@ -102,7 +102,7 @@ class App:
             self.custom_common_times,
         ) = result
         self.schedule_tab.refresh_acolyte_list()
-        self.schedule_tab.load_slots_from_data()
+        self.schedule_tab.load_slots_from_data(adapt_dates=True)
         self.events_tab.refresh_list()
         self.acolytes_tab.refresh_list()
         self.history_tab.refresh()

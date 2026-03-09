@@ -239,9 +239,8 @@ class AcolytesTab(ttk.Frame):
         self.acolyte_listbox.delete(0, tk.END)
         for ac in sorted_acs:
             suffix = " ⚠ suspenso" if ac.is_suspended else ""
-            activity_count = len(ac.event_history)
             self.acolyte_listbox.insert(
-                tk.END, f"{ac.name}{suffix} (E:{ac.times_scheduled} A:{activity_count})"
+                tk.END, f"{ac.name}{suffix}"
             )
 
         for i, ac in enumerate(sorted_acs):
@@ -334,9 +333,11 @@ class AcolytesTab(ttk.Frame):
                 susp_text = " 🟠 SERÁ SUSPENDIDO"
 
         self.name_label.config(text=f"{ac.name}{susp_text}")
+        activity_count = len(ac.event_history)
         self.summary_label.config(
             text=(
-                f"Escalas: {ac.times_scheduled}  |  Faltas: {ac.absence_count}  |  "
+                f"Escalas: {ac.times_scheduled}  |  Atividades: {activity_count}  |  "
+                f"Faltas: {ac.absence_count}  |  "
                 f"Suspensões: {ac.suspension_count}  |  Bônus: {ac.bonus_count}"
             )
         )
@@ -641,9 +642,11 @@ class AcolytesTab(ttk.Frame):
         if new_val < 0:
             new_val = 0
         self._current_acolyte.bonus_count = new_val
+        activity_count = len(self._current_acolyte.event_history)
         self.summary_label.config(
             text=(
                 f"Escalas: {self._current_acolyte.times_scheduled}  |  "
+                f"Atividades: {activity_count}  |  "
                 f"Faltas: {self._current_acolyte.absence_count}  |  "
                 f"Suspensões: {self._current_acolyte.suspension_count}  |  "
                 f"Bônus: {self._current_acolyte.bonus_count}"
@@ -989,16 +992,29 @@ class AcolytesTab(ttk.Frame):
         )
         self.app.ciclo_history.append(entry)
 
-        # Reset absences (and optionally bonuses)
+        # Reset absences, escalas, atividades (and optionally bonuses)
         for ac in self.app.acolytes:
             ac.absences.clear()
+            ac.times_scheduled = 0
+            ac.schedule_history.clear()
+            ac.event_history.clear()
             if reset_bonus:
                 ac.bonus_count = 0
                 ac.bonus_movements.clear()
 
+        # Clear app-level escala/atividade data
+        self.app.generated_schedules.clear()
+        self.app.finalized_event_batches.clear()
+        self.app.schedule_slots.clear()
+        self.app.general_events.clear()
+
         if self._current_acolyte:
             self._show_acolyte_detail()
+        self.refresh_list()
         self.app.save()
+        self.app.schedule_tab.load_slots_from_data()
+        self.app.schedule_tab.refresh_acolyte_list()
+        self.app.events_tab.refresh_list()
         self.app.history_tab.refresh()
         messagebox.showinfo("Concluído", f"Ciclo '{label}' fechado e salvo no histórico!")
 

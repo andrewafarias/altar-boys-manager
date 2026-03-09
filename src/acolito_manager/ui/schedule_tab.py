@@ -24,7 +24,7 @@ from ..utils import (
     names_list_to_text,
 )
 from .widgets import DateEntryFrame, TimeEntryFrame
-from .dialogs import AddEventDialog, StandardSlotsDialog, FinalizeScheduleDialog, GeneralEventUnavailabilityDialog
+from .dialogs import AddEscalaGeralDialog, StandardSlotsDialog, FinalizeScheduleDialog, GeneralEventUnavailabilityDialog
 
 
 def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
@@ -191,20 +191,21 @@ class ScheduleSlotCard(ttk.LabelFrame):
             ttk.Label(
                 self.acolyte_frame, text="TODOS",
                 font=("TkDefaultFont", 10, "bold"), foreground="blue"
-            ).pack(side=tk.LEFT)
+            ).grid(row=0, column=0, sticky="w")
             return
 
         if not self.slot.acolyte_ids:
-            ttk.Label(self.acolyte_frame, text="(nenhum acólito)", foreground="gray").pack(
-                side=tk.LEFT
+            ttk.Label(self.acolyte_frame, text="(nenhum acólito)", foreground="gray").grid(
+                row=0, column=0, sticky="w"
             )
             return
 
-        for aid in self.slot.acolyte_ids:
+        max_cols = 5
+        for i, aid in enumerate(self.slot.acolyte_ids):
             acolyte = self.app.find_acolyte(aid)
             name = acolyte.name if acolyte else f"(id:{aid[:6]})"
             lbl_frame = ttk.Frame(self.acolyte_frame, relief="solid", padding=2)
-            lbl_frame.pack(side=tk.LEFT, padx=2)
+            lbl_frame.grid(row=i // max_cols, column=i % max_cols, padx=2, pady=1, sticky="w")
             ttk.Label(lbl_frame, text=name, font=("TkDefaultFont", 8)).pack(side=tk.LEFT)
             btn = ttk.Button(
                 lbl_frame,
@@ -394,7 +395,7 @@ class ScheduleTab(ttk.Frame):
         self.app.save()
 
     def _add_general_event_slot(self):
-        dlg = AddEventDialog(self.app.root)
+        dlg = AddEscalaGeralDialog(self.app.root)
         if dlg.result:
             name, date, time, include_as_activity, include_as_schedule = dlg.result
 
@@ -454,8 +455,18 @@ class ScheduleTab(ttk.Frame):
         StandardSlotsDialog(self.app.root, self.app)
         self.refresh_acolyte_list()
 
-    def load_slots_from_data(self):
-        """Reconstrói os cards a partir dos dados carregados."""
+    def load_slots_from_data(self, adapt_dates: bool = False):
+        """Reconstrói os cards a partir dos dados carregados.
+
+        Args:
+            adapt_dates: When True, updates each slot's date to the next
+                occurrence of its weekday before rebuilding cards. Used at
+                app startup so persisted slots show upcoming dates.
+        """
+        if adapt_dates:
+            for slot in self.app.schedule_slots:
+                if slot.day:
+                    slot.date = next_occurrence_of_day(slot.day)
         self._slot_cards.clear()
         for widget in self.slots_frame.winfo_children():
             widget.destroy()
@@ -468,6 +479,11 @@ class ScheduleTab(ttk.Frame):
         if not self.app.schedule_slots:
             messagebox.showinfo("Aviso", "Nenhum horário de escala criado.")
             return
+
+        # Auto-populate general event slots that have empty acolyte_ids (reused after previous finalization)
+        for slot in self.app.schedule_slots:
+            if slot.is_general_event and not slot.acolyte_ids:
+                slot.acolyte_ids = [ac.id for ac in self.app.acolytes]
 
         lines = ["*ESCALA DA SEMANA*\n"]
         general_event_slots = []
@@ -529,12 +545,17 @@ class ScheduleTab(ttk.Frame):
             batch_entries = []
 
             for slot in general_event_slots:
+                if not slot.include_as_activity:
+                    continue
+
                 event_id = str(uuid.uuid4())
                 event_name = slot.general_event_name or slot.description
 
-                participating_acolyte_ids = [
-                    ac.id for ac in self.app.acolytes if not ac.is_suspended
-                ]
+                participating_acolyte_ids = []
+                for aid in slot.acolyte_ids:
+                    ac = self.app.find_acolyte(aid)
+                    if ac and not ac.is_suspended:
+                        participating_acolyte_ids.append(aid)
 
                 batch_entry = FinalizedEventBatchEntry(
                     event_id=event_id,
@@ -555,17 +576,22 @@ class ScheduleTab(ttk.Frame):
                         )
                         ac.event_history.append(hist_entry)
 
-            batch = FinalizedEventBatch(
-                id=batch_id,
-                finalized_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
-                entries=batch_entries,
-            )
-            self.app.finalized_event_batches.append(batch)
+            if batch_entries:
+                batch = FinalizedEventBatch(
+                    id=batch_id,
+                    finalized_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    entries=batch_entries,
+                )
+                self.app.finalized_event_batches.append(batch)
 
-        self.app.schedule_slots.clear()
-        self._slot_cards.clear()
-        for widget in self.slots_frame.winfo_children():
-            widget.destroy()
+        # Reset slots for reuse: new IDs, clear acolytes, update dates
+        for slot in self.app.schedule_slots:
+            slot.id = str(uuid.uuid4())
+            slot.acolyte_ids = []
+            if slot.day:
+                slot.date = next_occurrence_of_day(slot.day)
+
+        self.load_slots_from_data()
 
         self.app.save()
         self.refresh_acolyte_list()

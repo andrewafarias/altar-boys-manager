@@ -203,7 +203,7 @@ class EventsTab(ttk.Frame):
     def _add_event(self):
         dlg = AddEventDialog(self.app.root)
         if dlg.result:
-            name, date, time, _, _ = dlg.result
+            name, date, time = dlg.result
             ev = GeneralEvent(id=str(uuid.uuid4()), name=name, date=date, time=time)
             self.app.general_events.append(ev)
             self.refresh_list()
