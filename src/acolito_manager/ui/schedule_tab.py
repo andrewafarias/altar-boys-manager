@@ -24,7 +24,19 @@ from ..utils import (
     names_list_to_text,
 )
 from .widgets import DateEntryFrame, TimeEntryFrame
-from .dialogs import AddEventDialog, StandardSlotsDialog, FinalizeScheduleDialog
+from .dialogs import AddEventDialog, StandardSlotsDialog, FinalizeScheduleDialog, GeneralEventUnavailabilityDialog
+
+
+def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
+    """Returns True if time_str falls within [start_time, end_time)."""
+    try:
+        from datetime import datetime as _dt
+        t = _dt.strptime(time_str, "%H:%M").time()
+        s = _dt.strptime(start_time, "%H:%M").time()
+        e = _dt.strptime(end_time, "%H:%M").time()
+        return s <= t < e
+    except (ValueError, AttributeError):
+        return False
 
 
 class ScheduleSlotCard(ttk.LabelFrame):
@@ -133,13 +145,32 @@ class ScheduleSlotCard(ttk.LabelFrame):
             )
             return
         added = []
+        conflict_warnings = []
         for acolyte in acolytes:
             if acolyte.id not in self.slot.acolyte_ids:
                 self.slot.acolyte_ids.append(acolyte.id)
                 added.append(acolyte.name)
+                # Check unavailability
+                if self.slot.day and self.slot.time and hasattr(acolyte, 'unavailabilities'):
+                    for unav in acolyte.unavailabilities:
+                        if unav.day == self.slot.day and _time_in_interval(
+                            self.slot.time, unav.start_time, unav.end_time
+                        ):
+                            conflict_warnings.append(
+                                f"{acolyte.name}: indisponível às {self.slot.time} "
+                                f"({unav.start_time}–{unav.end_time})"
+                            )
+                            break
         if added:
             self._refresh_acolytes()
             self.app.save()
+            if conflict_warnings:
+                messagebox.showwarning(
+                    "Aviso de Indisponibilidade",
+                    "Os seguintes acólitos foram adicionados, mas têm indisponibilidade neste horário:\n\n"
+                    + "\n".join(conflict_warnings),
+                    parent=self,
+                )
         else:
             messagebox.showinfo(
                 "Aviso", "Acólito(s) selecionado(s) já estão neste horário.", parent=self
@@ -368,14 +399,35 @@ class ScheduleTab(ttk.Frame):
             name, date, time, include_as_activity, include_as_schedule = dlg.result
 
             all_acolyte_ids = [ac.id for ac in self.app.acolytes]
+            day = detect_weekday(date)
+
+            # Check unavailabilities
+            excluded_ids = set()
+            if time and day:
+                conflicting = []
+                for ac in self.app.acolytes:
+                    if hasattr(ac, 'unavailabilities'):
+                        for unav in ac.unavailabilities:
+                            if unav.day == day and _time_in_interval(time, unav.start_time, unav.end_time):
+                                conflicting.append(ac)
+                                break
+                if conflicting:
+                    warn_dlg = GeneralEventUnavailabilityDialog(
+                        self.app.root, name, time, day, conflicting
+                    )
+                    if warn_dlg.result is not None:
+                        for ac in warn_dlg.result:
+                            excluded_ids.add(ac.id)
+
+            final_acolyte_ids = [aid for aid in all_acolyte_ids if aid not in excluded_ids]
 
             slot = ScheduleSlot(
                 id=str(uuid.uuid4()),
                 date=date,
-                day=detect_weekday(date),
+                day=day,
                 time=time,
                 description=name,
-                acolyte_ids=all_acolyte_ids,
+                acolyte_ids=final_acolyte_ids,
                 is_general_event=True,
                 general_event_name=name,
                 include_as_activity=include_as_activity,

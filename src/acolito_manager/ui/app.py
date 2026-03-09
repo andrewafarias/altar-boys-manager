@@ -12,6 +12,7 @@ from ..models import (
     GeneratedSchedule,
     FinalizedEventBatch,
     StandardSlot,
+    CicloHistoryEntry,
 )
 from .schedule_tab import ScheduleTab
 from .events_tab import EventsTab
@@ -29,6 +30,8 @@ class App:
         self.generated_schedules: List[GeneratedSchedule] = []
         self.finalized_event_batches: List[FinalizedEventBatch] = []
         self.standard_slots: List[StandardSlot] = []
+        self.ciclo_history: List[CicloHistoryEntry] = []
+        self.custom_common_times: List[str] = []
 
         self.root = tk.Tk()
         self.root.title("Gerenciador de Acólitos")
@@ -39,6 +42,10 @@ class App:
         self._build_menu()
         self._build_notebook()
         self._load_data()
+
+        # Make custom_common_times accessible to time picker
+        from .widgets import TimePickerDialog
+        TimePickerDialog._app = self
 
     def _apply_theme(self):
         style = ttk.Style(self.root)
@@ -91,6 +98,8 @@ class App:
             self.generated_schedules,
             self.finalized_event_batches,
             self.standard_slots,
+            self.ciclo_history,
+            self.custom_common_times,
         ) = result
         self.schedule_tab.refresh_acolyte_list()
         self.schedule_tab.load_slots_from_data()
@@ -106,6 +115,8 @@ class App:
             self.generated_schedules,
             self.finalized_event_batches,
             self.standard_slots,
+            self.ciclo_history,
+            self.custom_common_times,
         )
 
     def find_acolyte(self, acolyte_id: str) -> Optional[Acolyte]:
@@ -141,6 +152,8 @@ class App:
                 self.generated_schedules,
                 self.finalized_event_batches,
                 self.standard_slots,
+                self.ciclo_history,
+                self.custom_common_times,
             )
             messagebox.showinfo("Sucesso", f"Dados exportados com sucesso para:\n{path}")
         except Exception as e:
@@ -168,6 +181,8 @@ class App:
                 generated_schedules,
                 finalized_event_batches,
                 standard_slots,
+                ciclo_history,
+                custom_common_times,
             ) = import_from_file(path)
             self.acolytes = acolytes
             self.schedule_slots = schedule_slots
@@ -175,6 +190,8 @@ class App:
             self.generated_schedules = generated_schedules
             self.finalized_event_batches = finalized_event_batches
             self.standard_slots = standard_slots
+            self.ciclo_history = ciclo_history
+            self.custom_common_times = custom_common_times
             self.save()
             self._load_data()
             messagebox.showinfo(

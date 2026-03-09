@@ -6,6 +6,33 @@ import uuid
 
 
 @dataclass
+class Unavailability:
+    """Indisponibilidade de um acólito para um determinado dia/horário da semana."""
+
+    day: str  # e.g., "Segunda-feira"
+    start_time: str  # HH:MM
+    end_time: str  # HH:MM
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "day": self.day,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Unavailability":
+        return cls(
+            id=data["id"],
+            day=data["day"],
+            start_time=data["start_time"],
+            end_time=data["end_time"],
+        )
+
+
+@dataclass
 class Absence:
     date: str
     description: str
@@ -143,6 +170,7 @@ class Acolyte:
     bonus_movements: List[BonusMovement] = field(default_factory=list)
     schedule_history: List[ScheduleHistoryEntry] = field(default_factory=list)
     event_history: List[EventHistoryEntry] = field(default_factory=list)
+    unavailabilities: List[Unavailability] = field(default_factory=list)
 
     @property
     def absence_count(self) -> int:
@@ -171,6 +199,7 @@ class Acolyte:
             "bonus_movements": [b.to_dict() for b in self.bonus_movements],
             "schedule_history": [sh.to_dict() for sh in self.schedule_history],
             "event_history": [eh.to_dict() for eh in self.event_history],
+            "unavailabilities": [u.to_dict() for u in self.unavailabilities],
         }
 
     @classmethod
@@ -186,6 +215,7 @@ class Acolyte:
             bonus_movements=[BonusMovement.from_dict(b) for b in data.get("bonus_movements", [])],
             schedule_history=[ScheduleHistoryEntry.from_dict(sh) for sh in data.get("schedule_history", [])],
             event_history=[EventHistoryEntry.from_dict(eh) for eh in data.get("event_history", [])],
+            unavailabilities=[Unavailability.from_dict(u) for u in data.get("unavailabilities", [])],
         )
 
 
@@ -388,4 +418,43 @@ class StandardSlot:
             day=data["day"],
             time=data["time"],
             description=data.get("description", ""),
+        )
+
+
+@dataclass
+class CicloHistoryEntry:
+    """Snapshot do estado do sistema ao fechar um ciclo."""
+
+    id: str
+    closed_at: str  # timestamp DD/MM/YYYY HH:MM
+    label: str  # user-defined label for the cycle
+    acolytes_snapshot: List[dict] = field(default_factory=list)
+    schedule_slots_snapshot: List[dict] = field(default_factory=list)
+    general_events_snapshot: List[dict] = field(default_factory=list)
+    generated_schedules_snapshot: List[dict] = field(default_factory=list)
+    finalized_event_batches_snapshot: List[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "closed_at": self.closed_at,
+            "label": self.label,
+            "acolytes_snapshot": self.acolytes_snapshot,
+            "schedule_slots_snapshot": self.schedule_slots_snapshot,
+            "general_events_snapshot": self.general_events_snapshot,
+            "generated_schedules_snapshot": self.generated_schedules_snapshot,
+            "finalized_event_batches_snapshot": self.finalized_event_batches_snapshot,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CicloHistoryEntry":
+        return cls(
+            id=data["id"],
+            closed_at=data["closed_at"],
+            label=data.get("label", ""),
+            acolytes_snapshot=data.get("acolytes_snapshot", []),
+            schedule_slots_snapshot=data.get("schedule_slots_snapshot", []),
+            general_events_snapshot=data.get("general_events_snapshot", []),
+            generated_schedules_snapshot=data.get("generated_schedules_snapshot", []),
+            finalized_event_batches_snapshot=data.get("finalized_event_batches_snapshot", []),
         )

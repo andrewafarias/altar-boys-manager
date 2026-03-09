@@ -16,6 +16,8 @@ from ..models import (
     BonusMovement,
     ScheduleHistoryEntry,
     EventHistoryEntry,
+    Unavailability,
+    CicloHistoryEntry,
 )
 from ..utils import today_str, is_currently_suspended
 from .dialogs import (
@@ -28,6 +30,8 @@ from .dialogs import (
     BonusDialog,
     EditBonusMovementDialog,
     AddMultipleAcolytesDialog,
+    AddUnavailabilityDialog,
+    CloseCicloDialog,
 )
 
 
@@ -74,7 +78,7 @@ class AcolytesTab(ttk.Frame):
         # Botões do rodapé
         ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=4)
         ttk.Button(left, text="📊 Visão Geral", command=self._show_overview_table).pack(fill=tk.X, pady=2)
-        ttk.Button(left, text="📕 Fechar Semestre", command=self._close_semester).pack(fill=tk.X, pady=2)
+        ttk.Button(left, text="📕 Fechar Ciclo", command=self._close_cycle).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="📄 Gerar Relatório PDF", command=self._generate_report).pack(fill=tk.X, pady=2)
 
         # --- Painel direito ---
@@ -139,12 +143,14 @@ class AcolytesTab(ttk.Frame):
         self._tab_absences = ttk.Frame(self.detail_notebook)
         self._tab_suspensions = ttk.Frame(self.detail_notebook)
         self._tab_bonus = ttk.Frame(self.detail_notebook)
+        self._tab_unavailabilities = ttk.Frame(self.detail_notebook)
 
         self.detail_notebook.add(self._tab_schedule, text="Histórico de Escalas")
         self.detail_notebook.add(self._tab_events, text="Atividades")
         self.detail_notebook.add(self._tab_absences, text="Faltas")
         self.detail_notebook.add(self._tab_suspensions, text="Suspensões")
         self.detail_notebook.add(self._tab_bonus, text="Movimentação de Bônus")
+        self.detail_notebook.add(self._tab_unavailabilities, text="Indisponibilidades")
 
         # Criação das tabelas
         self._tree_schedule = self._make_tree(
@@ -190,6 +196,17 @@ class AcolytesTab(ttk.Frame):
             command=self._delete_bonus_movement,
         ).pack(side=tk.LEFT, padx=2)
 
+        # Indisponibilidades tab
+        self._tree_unavailabilities = self._make_tree(
+            self._tab_unavailabilities,
+            ("Dia", "Hora Início", "Hora Fim"),
+            (160, 90, 90)
+        )
+        unav_btn_frame = ttk.Frame(self._tab_unavailabilities)
+        unav_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(unav_btn_frame, text="➕ Adicionar", command=self._add_unavailability).pack(side=tk.LEFT, padx=2)
+        ttk.Button(unav_btn_frame, text="🗑️ Excluir", command=self._delete_unavailability).pack(side=tk.LEFT, padx=2)
+
     def _make_tree(self, parent, columns, widths) -> ttk.Treeview:
         frame = ttk.Frame(parent)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -222,7 +239,10 @@ class AcolytesTab(ttk.Frame):
         self.acolyte_listbox.delete(0, tk.END)
         for ac in sorted_acs:
             suffix = " ⚠ suspenso" if ac.is_suspended else ""
-            self.acolyte_listbox.insert(tk.END, f"{ac.name}{suffix}")
+            activity_count = len(ac.event_history)
+            self.acolyte_listbox.insert(
+                tk.END, f"{ac.name}{suffix} (E:{ac.times_scheduled} A:{activity_count})"
+            )
 
         for i, ac in enumerate(sorted_acs):
             if ac.is_suspended:
@@ -367,6 +387,10 @@ class AcolytesTab(ttk.Frame):
         self._refresh_tree(self._tree_bonus, [
             ("Ganho" if b.type == "earn" else "Usado", str(b.amount), b.description or "-", b.date)
             for b in ac.bonus_movements
+        ])
+        self._refresh_tree(self._tree_unavailabilities, [
+            (u.day, u.start_time, u.end_time)
+            for u in getattr(ac, 'unavailabilities', [])
         ])
 
     def _refresh_tree(self, tree: ttk.Treeview, rows: list):
@@ -791,8 +815,49 @@ class AcolytesTab(ttk.Frame):
         self.app.save()
 
     # --------------------------------------------------------------------- #
-    #  Overview Table
+    #  Unavailabilities
     # --------------------------------------------------------------------- #
+
+    def _add_unavailability(self):
+        if not self._current_acolyte:
+            return
+        dlg = AddUnavailabilityDialog(self.app.root)
+        if dlg.result:
+            day, start_time, end_time = dlg.result
+            unav = Unavailability(
+                id=str(uuid.uuid4()),
+                day=day,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            ac = self._current_acolyte
+            if not hasattr(ac, 'unavailabilities') or ac.unavailabilities is None:
+                ac.unavailabilities = []
+            ac.unavailabilities.append(unav)
+            self._show_acolyte_detail()
+            self.app.save()
+
+    def _delete_unavailability(self):
+        if not self._current_acolyte:
+            return
+        sel = self._tree_unavailabilities.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma indisponibilidade para excluir.")
+            return
+        idx = self._tree_unavailabilities.index(sel[0])
+        ac = self._current_acolyte
+        unavs = getattr(ac, 'unavailabilities', [])
+        if idx >= len(unavs):
+            return
+        unav = unavs[idx]
+        if not messagebox.askyesno(
+            "Confirmar",
+            f"Excluir indisponibilidade de {unav.day} ({unav.start_time}–{unav.end_time})?"
+        ):
+            return
+        unavs.pop(idx)
+        self._show_acolyte_detail()
+        self.app.save()
 
     def _show_overview_table(self):
         """Show an overview table of all acolytes in the main panel."""
@@ -898,30 +963,44 @@ class AcolytesTab(ttk.Frame):
         self.no_selection_label.pack(pady=20)
 
     # --------------------------------------------------------------------- #
-    #  Semester / Report
+    #  Ciclo / Report
     # --------------------------------------------------------------------- #
 
-    def _close_semester(self):
+    def _close_cycle(self):
         if not self.app.acolytes:
             messagebox.showinfo("Aviso", "Nenhum acólito cadastrado.")
             return
-        if not messagebox.askyesno(
-            "Fechar Semestre",
-            "Isso vai resetar as faltas de todos os acólitos.\nDeseja continuar?",
-        ):
+        dlg = CloseCicloDialog(self.app.root)
+        if not dlg.result:
             return
-        reset_bonus = messagebox.askyesno(
-            "Bônus", "Deseja também resetar os bônus de todos os acólitos?"
+        label, reset_bonus = dlg.result
+
+        # Save snapshot of current state
+        import uuid as _uuid
+        entry = CicloHistoryEntry(
+            id=str(_uuid.uuid4()),
+            closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
+            label=label,
+            acolytes_snapshot=[a.to_dict() for a in self.app.acolytes],
+            schedule_slots_snapshot=[s.to_dict() for s in self.app.schedule_slots],
+            general_events_snapshot=[e.to_dict() for e in self.app.general_events],
+            generated_schedules_snapshot=[gs.to_dict() for gs in self.app.generated_schedules],
+            finalized_event_batches_snapshot=[fb.to_dict() for fb in self.app.finalized_event_batches],
         )
+        self.app.ciclo_history.append(entry)
+
+        # Reset absences (and optionally bonuses)
         for ac in self.app.acolytes:
             ac.absences.clear()
             if reset_bonus:
                 ac.bonus_count = 0
                 ac.bonus_movements.clear()
+
         if self._current_acolyte:
             self._show_acolyte_detail()
         self.app.save()
-        messagebox.showinfo("Concluído", "Semestre fechado com sucesso!")
+        self.app.history_tab.refresh()
+        messagebox.showinfo("Concluído", f"Ciclo '{label}' fechado e salvo no histórico!")
 
     def _generate_report(self):
         if not self.app.acolytes:

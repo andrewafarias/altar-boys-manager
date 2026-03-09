@@ -1,9 +1,14 @@
 """Aba de histórico de escalas e atividades finalizadas."""
 
+import os
+import sys
+import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+from datetime import datetime
 
-from ..models import ScheduleSlot
+from ..models import ScheduleSlot, Acolyte, CicloHistoryEntry
+from ..report_generator import generate_report
 
 
 class HistoryTab(ttk.Frame):
@@ -20,11 +25,14 @@ class HistoryTab(ttk.Frame):
 
         self._sched_frame = ttk.Frame(nb)
         self._event_frame = ttk.Frame(nb)
+        self._ciclo_frame = ttk.Frame(nb)
         nb.add(self._sched_frame, text="📅 Escalas Geradas")
         nb.add(self._event_frame, text="⛪ Atividades Finalizadas")
+        nb.add(self._ciclo_frame, text="🔄 Histórico de Ciclos")
 
         self._build_schedule_history()
         self._build_event_history()
+        self._build_ciclo_history()
 
     # --------------------------------------------------------------------- #
     #  Schedule History
@@ -175,6 +183,7 @@ class HistoryTab(ttk.Frame):
         """Atualiza ambas as listas."""
         self._refresh_sched_list()
         self._refresh_ev_list()
+        self._refresh_ciclo_list()
 
     def _refresh_sched_list(self):
         self._sched_listbox.delete(0, tk.END)
@@ -416,3 +425,249 @@ class HistoryTab(ttk.Frame):
         self._on_ev_select()  # Refresh the tree view
         self.app.acolytes_tab.refresh_list()
         messagebox.showinfo("Concluído", "Atividade excluída do lote.")
+
+    # --------------------------------------------------------------------- #
+    #  Ciclo History
+    # --------------------------------------------------------------------- #
+
+    def _build_ciclo_history(self):
+        paned = tk.PanedWindow(
+            self._ciclo_frame, orient=tk.HORIZONTAL, sashrelief=tk.RAISED, sashwidth=5
+        )
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        left = ttk.Frame(paned, padding=4)
+        paned.add(left, minsize=260)
+
+        ttk.Label(left, text="Histórico de Ciclos", font=("TkDefaultFont", 11, "bold")).pack(pady=4)
+
+        list_frame = ttk.Frame(left)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        sb = ttk.Scrollbar(list_frame)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self._ciclo_listbox = tk.Listbox(list_frame, yscrollcommand=sb.set)
+        self._ciclo_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.config(command=self._ciclo_listbox.yview)
+        self._ciclo_listbox.bind("<<ListboxSelect>>", self._on_ciclo_select)
+
+        btn_frame = ttk.Frame(left)
+        btn_frame.pack(fill=tk.X, pady=4)
+        ttk.Button(btn_frame, text="🔄 Restaurar Ciclo", command=self._restore_ciclo).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="📄 Gerar Relatório PDF", command=self._generate_ciclo_report).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="🗑️ Excluir Ciclo", command=self._delete_ciclo).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="🧹 Limpar Histórico", command=self._clear_ciclo_history).pack(fill=tk.X, pady=2)
+
+        right = ttk.Frame(paned, padding=4)
+        paned.add(right, minsize=400)
+
+        self._ciclo_detail_label = ttk.Label(
+            right, text="Selecione um ciclo para ver os detalhes.", foreground="gray"
+        )
+        self._ciclo_detail_label.pack(pady=20)
+
+        self._ciclo_detail_frame = ttk.Frame(right)
+
+        ttk.Label(
+            self._ciclo_detail_frame, text="Acólitos no ciclo:", font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor="w")
+
+        ac_frame = ttk.Frame(self._ciclo_detail_frame)
+        ac_frame.pack(fill=tk.BOTH, expand=True)
+        sb2 = ttk.Scrollbar(ac_frame, orient=tk.VERTICAL)
+        sb2.pack(side=tk.RIGHT, fill=tk.Y)
+        self._ciclo_tree = ttk.Treeview(
+            ac_frame,
+            columns=("Nome", "Escalas", "Atividades", "Faltas", "Bônus"),
+            show="headings",
+            yscrollcommand=sb2.set,
+        )
+        sb2.config(command=self._ciclo_tree.yview)
+        for col, w in [("Nome", 180), ("Escalas", 70), ("Atividades", 80), ("Faltas", 60), ("Bônus", 60)]:
+            self._ciclo_tree.heading(col, text=col)
+            self._ciclo_tree.column(col, width=w, minwidth=40)
+        self._ciclo_tree.pack(fill=tk.BOTH, expand=True)
+
+    def _refresh_ciclo_list(self):
+        self._ciclo_listbox.delete(0, tk.END)
+        for ch in self.app.ciclo_history:
+            self._ciclo_listbox.insert(tk.END, f"{ch.label} ({ch.closed_at})")
+
+    def _on_ciclo_select(self, event=None):
+        sel = self._ciclo_listbox.curselection()
+        if not sel:
+            self._ciclo_detail_label.pack(pady=20)
+            self._ciclo_detail_frame.pack_forget()
+            return
+        idx = sel[0]
+        if idx >= len(self.app.ciclo_history):
+            return
+        ch = self.app.ciclo_history[idx]
+        self._ciclo_detail_label.pack_forget()
+        self._ciclo_detail_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._ciclo_tree.delete(*self._ciclo_tree.get_children())
+        for ac_dict in ch.acolytes_snapshot:
+            name = ac_dict.get("name", "?")
+            escalas = ac_dict.get("times_scheduled", 0)
+            atividades = len(ac_dict.get("event_history", []))
+            faltas = len(ac_dict.get("absences", []))
+            bonus = ac_dict.get("bonus_count", 0)
+            self._ciclo_tree.insert("", tk.END, values=(name, escalas, atividades, faltas, bonus))
+
+    def _restore_ciclo(self):
+        sel = self._ciclo_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um ciclo para restaurar.")
+            return
+        idx = sel[0]
+        if idx >= len(self.app.ciclo_history):
+            return
+        ch = self.app.ciclo_history[idx]
+        if not messagebox.askyesno(
+            "Restaurar Ciclo",
+            f"Deseja restaurar o ciclo '{ch.label}' ({ch.closed_at})?\n\n"
+            "O estado atual será salvo no histórico como um novo ciclo e "
+            "substituído pelo ciclo selecionado.",
+        ):
+            return
+
+        # Ask for label for the current cycle being closed
+        import tkinter.simpledialog as sd
+        current_label = sd.askstring(
+            "Fechar Ciclo Atual",
+            "Informe um rótulo para o ciclo atual antes de restaurar:",
+            parent=self.app.root,
+        )
+        if current_label is None:
+            return
+        if not current_label.strip():
+            current_label = f"Ciclo fechado em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+
+        import uuid as _uuid
+        from ..models import (
+            Acolyte, ScheduleSlot, GeneralEvent,
+            GeneratedSchedule, FinalizedEventBatch, CicloHistoryEntry,
+        )
+
+        # Save current state as a new ciclo history entry
+        current_entry = CicloHistoryEntry(
+            id=str(_uuid.uuid4()),
+            closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
+            label=current_label.strip(),
+            acolytes_snapshot=[a.to_dict() for a in self.app.acolytes],
+            schedule_slots_snapshot=[s.to_dict() for s in self.app.schedule_slots],
+            general_events_snapshot=[e.to_dict() for e in self.app.general_events],
+            generated_schedules_snapshot=[gs.to_dict() for gs in self.app.generated_schedules],
+            finalized_event_batches_snapshot=[fb.to_dict() for fb in self.app.finalized_event_batches],
+        )
+        self.app.ciclo_history.append(current_entry)
+
+        # Restore the selected cycle
+        self.app.acolytes = [Acolyte.from_dict(a) for a in ch.acolytes_snapshot]
+        self.app.schedule_slots = [ScheduleSlot.from_dict(s) for s in ch.schedule_slots_snapshot]
+        self.app.general_events = [GeneralEvent.from_dict(e) for e in ch.general_events_snapshot]
+        self.app.generated_schedules = [GeneratedSchedule.from_dict(gs) for gs in ch.generated_schedules_snapshot]
+        self.app.finalized_event_batches = [FinalizedEventBatch.from_dict(fb) for fb in ch.finalized_event_batches_snapshot]
+
+        self.app.save()
+        self.app.schedule_tab.refresh_acolyte_list()
+        self.app.schedule_tab.load_slots_from_data()
+        self.app.events_tab.refresh_list()
+        self.app.acolytes_tab.refresh_list()
+        self.refresh()
+
+        messagebox.showinfo(
+            "Concluído",
+            f"Estado restaurado para o ciclo '{ch.label}'.\n"
+            f"O ciclo anterior foi salvo como '{current_label.strip()}'."
+        )
+
+    def _generate_ciclo_report(self):
+        sel = self._ciclo_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um ciclo para gerar o relatório.")
+            return
+        idx = sel[0]
+        if idx >= len(self.app.ciclo_history):
+            return
+        ch = self.app.ciclo_history[idx]
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF", "*.pdf")],
+            title="Salvar relatório do ciclo como",
+            initialfile=f"relatorio_{ch.label.replace(' ', '_')}.pdf",
+        )
+        if not path:
+            return
+
+        try:
+            from ..models import Acolyte, FinalizedEventBatchEntry, FinalizedEventBatch
+            acolytes = sorted(
+                [Acolyte.from_dict(a) for a in ch.acolytes_snapshot],
+                key=lambda a: a.name.lower()
+            )
+            # Reconstruct finalized event entries from snapshot
+            finalized_entries = []
+            for fb_dict in ch.finalized_event_batches_snapshot:
+                fb = FinalizedEventBatch.from_dict(fb_dict)
+                finalized_entries.extend(fb.entries)
+
+            generate_report(acolytes, path, finalized_entries)
+            if messagebox.askyesno(
+                "Sucesso",
+                f"Relatório do ciclo '{ch.label}' gerado em:\n{path}\n\nDeseja abrir?"
+            ):
+                self._open_file(path)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Falha ao gerar relatório:\n{e}")
+
+    def _delete_ciclo(self):
+        sel = self._ciclo_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um ciclo para excluir.")
+            return
+        idx = sel[0]
+        if idx >= len(self.app.ciclo_history):
+            return
+        ch = self.app.ciclo_history[idx]
+        if not messagebox.askyesno(
+            "Confirmar",
+            f"Excluir o ciclo '{ch.label}' ({ch.closed_at}) do histórico?\n\n"
+            "Essa ação não pode ser desfeita."
+        ):
+            return
+        self.app.ciclo_history.pop(idx)
+        self.app.save()
+        self._refresh_ciclo_list()
+        self._ciclo_detail_label.pack(pady=20)
+        self._ciclo_detail_frame.pack_forget()
+        messagebox.showinfo("Concluído", "Ciclo excluído do histórico.")
+
+    def _clear_ciclo_history(self):
+        if not self.app.ciclo_history:
+            messagebox.showinfo("Aviso", "O histórico de ciclos já está vazio.")
+            return
+        if not messagebox.askyesno(
+            "Confirmar",
+            f"Limpar todo o histórico de ciclos ({len(self.app.ciclo_history)} ciclo(s))?\n\n"
+            "Essa ação não pode ser desfeita."
+        ):
+            return
+        self.app.ciclo_history.clear()
+        self.app.save()
+        self._refresh_ciclo_list()
+        self._ciclo_detail_label.pack(pady=20)
+        self._ciclo_detail_frame.pack_forget()
+        messagebox.showinfo("Concluído", "Histórico de ciclos limpo.")
+
+    def _open_file(self, path: str):
+        try:
+            if sys.platform.startswith("darwin"):
+                subprocess.call(["open", path])
+            elif sys.platform.startswith("win"):
+                os.startfile(path)
+            else:
+                subprocess.call(["xdg-open", path])
+        except Exception:
+            pass
