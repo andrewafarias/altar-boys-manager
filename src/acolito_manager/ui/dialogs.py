@@ -4,7 +4,7 @@ import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from ..models import BonusMovement, StandardSlot
+from ..models import BonusMovement, StandardSlot, ScheduleSlot, Unavailability
 from ..utils import (
     WEEKDAYS_PT,
     detect_weekday,
@@ -478,7 +478,7 @@ class AddEventDialog(BaseDialog):
     """Diálogo para adicionar uma atividade."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Adicionar Atividade Geral")
+        super().__init__(parent, "Adicionar escala geral")
         self._build()
         self._center()
         self.wait_window()
@@ -510,7 +510,7 @@ class AddEventDialog(BaseDialog):
             frame, text="Incluir como atividade", variable=self.include_as_activity_var
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
 
-        self.include_as_schedule_var = tk.BooleanVar(value=False)
+        self.include_as_schedule_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             frame, text="Incluir como escala", variable=self.include_as_schedule_var
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=4)
@@ -619,8 +619,6 @@ class StandardSlotsDialog(BaseDialog):
         self.wait_window()
 
     def _build(self):
-        from models import ScheduleSlot
-
         frame = ttk.Frame(self, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
@@ -705,8 +703,6 @@ class StandardSlotsDialog(BaseDialog):
             self._refresh_list()
 
     def _add_to_schedule(self):
-        from models import ScheduleSlot
-
         if not self.app.standard_slots:
             messagebox.showinfo("Aviso", "Nenhum horário padrão cadastrado.", parent=self)
             return
@@ -728,3 +724,180 @@ class StandardSlotsDialog(BaseDialog):
 
     def _ok(self):
         pass
+
+
+class AddUnavailabilityDialog(BaseDialog):
+    """Diálogo para adicionar uma indisponibilidade a um acólito."""
+
+    def __init__(self, parent):
+        super().__init__(parent, "Adicionar Indisponibilidade")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Dia da semana:").grid(row=0, column=0, sticky="w", pady=4)
+        self.day_var = tk.StringVar()
+        ttk.Combobox(
+            frame, textvariable=self.day_var, values=WEEKDAYS_PT, width=18, state="readonly"
+        ).grid(row=0, column=1, padx=8, pady=4, sticky="w")
+
+        ttk.Label(frame, text="Hora início (HH:MM):").grid(row=1, column=0, sticky="w", pady=4)
+        self.start_var = tk.StringVar()
+        TimeEntryFrame(frame, textvariable=self.start_var, width=8).grid(
+            row=1, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Label(frame, text="Hora fim (HH:MM):").grid(row=2, column=0, sticky="w", pady=4)
+        self.end_var = tk.StringVar()
+        TimeEntryFrame(frame, textvariable=self.end_var, width=8).grid(
+            row=2, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        day = self.day_var.get().strip()
+        start = self.start_var.get().strip()
+        end = self.end_var.get().strip()
+        if not day:
+            messagebox.showwarning("Aviso", "Selecione o dia da semana.", parent=self)
+            return
+        if not start or not end:
+            messagebox.showwarning("Aviso", "Informe os horários de início e fim.", parent=self)
+            return
+        try:
+            sh, sm = map(int, start.split(":"))
+            eh, em = map(int, end.split(":"))
+            if not (0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59):
+                raise ValueError
+            start = f"{sh:02d}:{sm:02d}"
+            end = f"{eh:02d}:{em:02d}"
+            if start >= end:
+                messagebox.showwarning("Aviso", "O horário de início deve ser anterior ao fim.", parent=self)
+                return
+        except (ValueError, AttributeError):
+            messagebox.showwarning("Aviso", "Informe horários válidos no formato HH:MM.", parent=self)
+            return
+        self.result = (day, start, end)
+        self.destroy()
+
+
+class GeneralEventUnavailabilityDialog(BaseDialog):
+    """Lista acólitos com conflito de indisponibilidade para uma escala geral."""
+
+    def __init__(self, parent, event_name, event_time, event_day, conflicting_acolytes):
+        self._event_name = event_name
+        self._event_time = event_time
+        self._event_day = event_day
+        self._conflicting_acolytes = conflicting_acolytes
+        super().__init__(parent, "Aviso de Indisponibilidade")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text=(
+                f"Os acólitos abaixo têm indisponibilidade em\n"
+                f"{self._event_day} às {self._event_time} para '{self._event_name}'.\n\n"
+                "Marque os que deseja incluir mesmo assim:"
+            ),
+            justify="left",
+            foreground="#8B0000",
+        ).pack(anchor="w", pady=(0, 8))
+
+        self._include_all_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame, text="Incluir todos", variable=self._include_all_var,
+            command=self._toggle_all
+        ).pack(anchor="w", pady=(0, 4))
+
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._vars = []
+        for ac in self._conflicting_acolytes:
+            var = tk.BooleanVar(value=False)
+            self._vars.append((ac, var))
+            ttk.Checkbutton(list_frame, text=ac.name, variable=var).pack(anchor="w", padx=4, pady=1)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(
+            btn_frame, text="Cancelar (incluir nenhum)", command=self._cancel
+        ).pack(side=tk.LEFT, padx=4)
+
+    def _toggle_all(self):
+        val = self._include_all_var.get()
+        for _, var in self._vars:
+            var.set(val)
+
+    def _ok(self):
+        # Returns list of acolytes to EXCLUDE (those not checked)
+        self.result = [ac for ac, var in self._vars if not var.get()]
+        self.destroy()
+
+    def _cancel(self):
+        # Exclude all conflicting acolytes
+        self.result = [ac for ac, _ in self._vars]
+        self.destroy()
+
+
+class CloseCicloDialog(BaseDialog):
+    """Diálogo para fechar o ciclo atual."""
+
+    def __init__(self, parent):
+        super().__init__(parent, "Fechar Ciclo")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Rótulo do ciclo (ex: 1º Semestre 2025):").pack(anchor="w", pady=(0, 4))
+        self.label_var = tk.StringVar()
+        ttk.Entry(frame, textvariable=self.label_var, width=36).pack(fill=tk.X, pady=4)
+
+        sep = ttk.Separator(frame, orient=tk.HORIZONTAL)
+        sep.pack(fill=tk.X, pady=8)
+
+        ttk.Label(frame, text="Ao fechar o ciclo:").pack(anchor="w")
+        ttk.Label(
+            frame, text="• As faltas de todos os acólitos serão resetadas.", foreground="gray"
+        ).pack(anchor="w")
+        ttk.Label(
+            frame, text="• O estado atual será salvo no histórico de ciclos.", foreground="gray"
+        ).pack(anchor="w")
+
+        self.reset_bonus_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            frame, text="Também resetar bônus de todos os acólitos",
+            variable=self.reset_bonus_var
+        ).pack(anchor="w", pady=4)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Fechar Ciclo", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        label = self.label_var.get().strip()
+        if not label:
+            messagebox.showwarning("Aviso", "Informe um rótulo para o ciclo.", parent=self)
+            return
+        self.result = (label, self.reset_bonus_var.get())
+        self.destroy()

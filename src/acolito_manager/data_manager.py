@@ -5,11 +5,25 @@ import os
 from typing import List, Tuple
 from pathlib import Path
 
-from .models import Acolyte, ScheduleSlot, GeneralEvent, GeneratedSchedule, FinalizedEventBatch, StandardSlot
+from .models import (
+    Acolyte,
+    ScheduleSlot,
+    GeneralEvent,
+    GeneratedSchedule,
+    FinalizedEventBatch,
+    StandardSlot,
+    CicloHistoryEntry,
+)
 
 # Data directory is relative to the root of the project (one level up from src)
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 DATA_FILE = DATA_DIR / "acolitos_data.json"
+
+DEFAULT_COMMON_TIMES = [
+    "06:00", "07:00", "08:00", "09:00", "10:00",
+    "11:00", "12:00", "14:00", "15:00", "16:00",
+    "17:00", "18:00", "19:00", "19:30", "20:00",
+]
 
 
 def save_data(
@@ -19,6 +33,8 @@ def save_data(
     generated_schedules: List[GeneratedSchedule] = None,
     finalized_event_batches: List[FinalizedEventBatch] = None,
     standard_slots: List[StandardSlot] = None,
+    ciclo_history: List[CicloHistoryEntry] = None,
+    custom_common_times: List[str] = None,
 ) -> None:
     """Salva todos os dados no arquivo JSON."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -29,6 +45,8 @@ def save_data(
         "generated_schedules": [gs.to_dict() for gs in (generated_schedules or [])],
         "finalized_event_batches": [fb.to_dict() for fb in (finalized_event_batches or [])],
         "standard_slots": [ss.to_dict() for ss in (standard_slots or [])],
+        "ciclo_history": [ch.to_dict() for ch in (ciclo_history or [])],
+        "custom_common_times": custom_common_times if custom_common_times is not None else DEFAULT_COMMON_TIMES,
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -37,7 +55,7 @@ def save_data(
 def load_data():
     """Carrega os dados do arquivo JSON. Retorna listas vazias se o arquivo não existir."""
     if not DATA_FILE.exists():
-        return [], [], [], [], [], []
+        return [], [], [], [], [], [], [], list(DEFAULT_COMMON_TIMES)
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -47,9 +65,11 @@ def load_data():
         generated_schedules = [GeneratedSchedule.from_dict(gs) for gs in data.get("generated_schedules", [])]
         finalized_event_batches = [FinalizedEventBatch.from_dict(fb) for fb in data.get("finalized_event_batches", [])]
         standard_slots = [StandardSlot.from_dict(ss) for ss in data.get("standard_slots", [])]
-        return acolytes, schedule_slots, general_events, generated_schedules, finalized_event_batches, standard_slots
+        ciclo_history = [CicloHistoryEntry.from_dict(ch) for ch in data.get("ciclo_history", [])]
+        custom_common_times = data.get("custom_common_times", list(DEFAULT_COMMON_TIMES))
+        return acolytes, schedule_slots, general_events, generated_schedules, finalized_event_batches, standard_slots, ciclo_history, custom_common_times
     except (json.JSONDecodeError, KeyError, TypeError):
-        return [], [], [], [], [], []
+        return [], [], [], [], [], [], [], list(DEFAULT_COMMON_TIMES)
 
 
 def export_to_file(
@@ -60,6 +80,8 @@ def export_to_file(
     generated_schedules: List[GeneratedSchedule] = None,
     finalized_event_batches: List[FinalizedEventBatch] = None,
     standard_slots: List[StandardSlot] = None,
+    ciclo_history: List[CicloHistoryEntry] = None,
+    custom_common_times: List[str] = None,
 ) -> None:
     """Exporta todos os dados para um arquivo JSON externo."""
     data = {
@@ -69,6 +91,8 @@ def export_to_file(
         "generated_schedules": [gs.to_dict() for gs in (generated_schedules or [])],
         "finalized_event_batches": [fb.to_dict() for fb in (finalized_event_batches or [])],
         "standard_slots": [ss.to_dict() for ss in (standard_slots or [])],
+        "ciclo_history": [ch.to_dict() for ch in (ciclo_history or [])],
+        "custom_common_times": custom_common_times if custom_common_times is not None else DEFAULT_COMMON_TIMES,
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -84,4 +108,6 @@ def import_from_file(path: str):
     generated_schedules = [GeneratedSchedule.from_dict(gs) for gs in data.get("generated_schedules", [])]
     finalized_event_batches = [FinalizedEventBatch.from_dict(fb) for fb in data.get("finalized_event_batches", [])]
     standard_slots = [StandardSlot.from_dict(ss) for ss in data.get("standard_slots", [])]
-    return acolytes, schedule_slots, general_events, generated_schedules, finalized_event_batches, standard_slots
+    ciclo_history = [CicloHistoryEntry.from_dict(ch) for ch in data.get("ciclo_history", [])]
+    custom_common_times = data.get("custom_common_times", list(DEFAULT_COMMON_TIMES))
+    return acolytes, schedule_slots, general_events, generated_schedules, finalized_event_batches, standard_slots, ciclo_history, custom_common_times
