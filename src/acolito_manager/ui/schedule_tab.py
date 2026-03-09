@@ -456,7 +456,13 @@ class ScheduleTab(ttk.Frame):
         self.refresh_acolyte_list()
 
     def load_slots_from_data(self, adapt_dates: bool = False):
-        """Reconstrói os cards a partir dos dados carregados."""
+        """Reconstrói os cards a partir dos dados carregados.
+
+        Args:
+            adapt_dates: When True, updates each slot's date to the next
+                occurrence of its weekday before rebuilding cards. Used at
+                app startup so persisted slots show upcoming dates.
+        """
         if adapt_dates:
             for slot in self.app.schedule_slots:
                 if slot.day:
