@@ -620,6 +620,7 @@ class HistoryTab(ttk.Frame):
                 finalized_entries,
                 generated_schedules,
                 self.app.include_activity_table_per_acolyte,
+                ch.label,
             )
             if messagebox.askyesno(
                 "Sucesso",

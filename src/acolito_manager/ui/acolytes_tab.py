@@ -77,6 +77,16 @@ class AcolytesTab(ttk.Frame):
 
         # Botões do rodapé
         ttk.Separator(left, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=4)
+        cycle_name_frame = ttk.LabelFrame(left, text="Ciclo Atual", padding=4)
+        cycle_name_frame.pack(fill=tk.X, pady=2)
+        self.current_cycle_name_var = tk.StringVar(value=self.app.current_cycle_name)
+        self.current_cycle_name_entry = ttk.Entry(
+            cycle_name_frame,
+            textvariable=self.current_cycle_name_var,
+        )
+        self.current_cycle_name_entry.pack(fill=tk.X)
+        self.current_cycle_name_entry.bind("<FocusOut>", lambda _e: self._save_current_cycle_name())
+        self.current_cycle_name_entry.bind("<Return>", lambda _e: self._save_current_cycle_name())
         ttk.Button(left, text="📊 Visão Geral", command=self._show_overview_table).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="📕 Fechar Ciclo", command=self._close_cycle).pack(fill=tk.X, pady=2)
         ttk.Button(left, text="📄 Gerar Relatório PDF", command=self._generate_report).pack(fill=tk.X, pady=2)
@@ -161,6 +171,11 @@ class AcolytesTab(ttk.Frame):
         ttk.Button(sched_btn_frame, text="➕ Adicionar Entrada", command=self._add_schedule_entry).pack(side=tk.LEFT, padx=2)
         ttk.Button(sched_btn_frame, text="🗑️ Excluir Entrada", command=self._delete_schedule_entry).pack(side=tk.LEFT, padx=2)
         ttk.Button(sched_btn_frame, text="⚠️ Marcar/Desmarcar Faltou", command=self._toggle_schedule_missed).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            sched_btn_frame,
+            text="🏷️ Marcar/Desmarcar Falta simbólica",
+            command=self._toggle_schedule_symbolic_missed,
+        ).pack(side=tk.LEFT, padx=2)
 
         self._tree_events = self._make_tree(
             self._tab_events, ("Nome da Atividade", "Data", "Horário", "Faltou"), (210, 80, 80, 70)
@@ -170,6 +185,11 @@ class AcolytesTab(ttk.Frame):
         ttk.Button(event_btn_frame, text="➕ Adicionar Entrada", command=self._add_event_entry).pack(side=tk.LEFT, padx=2)
         ttk.Button(event_btn_frame, text="🗑️ Excluir Entrada", command=self._delete_event_entry).pack(side=tk.LEFT, padx=2)
         ttk.Button(event_btn_frame, text="⚠️ Marcar/Desmarcar Faltou", command=self._toggle_event_missed).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            event_btn_frame,
+            text="🏷️ Marcar/Desmarcar Falta simbólica",
+            command=self._toggle_event_symbolic_missed,
+        ).pack(side=tk.LEFT, padx=2)
 
         self._tree_absences = self._make_tree(
             self._tab_absences, ("Data", "Descrição", "Vinculada", "Simbólica"), (100, 260, 110, 90)
@@ -177,7 +197,6 @@ class AcolytesTab(ttk.Frame):
         abs_btn_frame = ttk.Frame(self._tab_absences)
         abs_btn_frame.pack(fill=tk.X, pady=2)
         ttk.Button(abs_btn_frame, text="🗑️ Excluir Falta", command=self._delete_absence).pack(side=tk.LEFT, padx=2)
-        ttk.Button(abs_btn_frame, text="🏷️ Marcar/Desmarcar Simbólica", command=self._toggle_symbolic_absence).pack(side=tk.LEFT, padx=2)
         self._tree_suspensions = self._make_tree(
             self._tab_suspensions, ("Motivo", "Início", "Fim", "Ativa"), (180, 100, 100, 60)
         )
@@ -295,6 +314,17 @@ class AcolytesTab(ttk.Frame):
     def _hide_detail(self):
         self.detail_frame.pack_forget()
         self.no_selection_label.pack(pady=20)
+
+    def sync_current_cycle_name(self):
+        if hasattr(self, "current_cycle_name_var"):
+            self.current_cycle_name_var.set(self.app.current_cycle_name)
+
+    def _save_current_cycle_name(self):
+        new_value = self.current_cycle_name_var.get().strip()
+        if new_value == self.app.current_cycle_name:
+            return
+        self.app.current_cycle_name = new_value
+        self.app.save()
 
     # --------------------------------------------------------------------- #
     #  Detail Display
@@ -466,14 +496,23 @@ class AcolytesTab(ttk.Frame):
 
     def _check_suspension_expiry(self, ac):
         """Check if any suspension end_date has been reached."""
+        changed = False
         for s in ac.suspensions:
             if s.is_active and s.end_date:
                 try:
                     end_dt = datetime.strptime(s.end_date, "%d/%m/%Y")
                     if end_dt.date() <= datetime.now().date():
-                        pass  # Mark visually but don't auto-deactivate
+                        if self.app.auto_lift_suspensions_on_end_date:
+                            s.is_active = False
+                            changed = True
                 except ValueError:
                     pass
+
+        if changed:
+            ac.is_suspended = is_currently_suspended(ac)
+            self.refresh_list()
+            self.app.schedule_tab.refresh_acolyte_list()
+            self.app.save()
 
     # --------------------------------------------------------------------- #
     #  Add / Remove Acolytes
@@ -955,6 +994,54 @@ class AcolytesTab(ttk.Frame):
         self._show_acolyte_detail()
         self.app.save()
 
+    def _toggle_symbolic_linked_absence(self, entry_type: str):
+        if not self._current_acolyte:
+            return
+
+        ac = self._current_acolyte
+        if entry_type == "schedule":
+            sel = self._tree_schedule.selection()
+            if not sel:
+                messagebox.showinfo("Aviso", "Selecione uma entrada de escala.")
+                return
+            idx = self._tree_schedule.index(sel[0])
+            if idx >= len(ac.schedule_history):
+                return
+            entry = ac.schedule_history[idx]
+            entry_id = entry.schedule_id
+        else:
+            sel = self._tree_events.selection()
+            if not sel:
+                messagebox.showinfo("Aviso", "Selecione uma entrada de atividade.")
+                return
+            idx = self._tree_events.index(sel[0])
+            if idx >= len(ac.event_history):
+                return
+            entry = ac.event_history[idx]
+            entry_id = entry.event_id
+
+        linked_absence = self._find_linked_absence(ac, entry_type, entry_id)
+
+        # If there is no linked absence yet, mark as missed first and create one.
+        if not linked_absence:
+            entry.missed = True
+            self._sync_linked_absence(ac, entry_type, entry, True)
+            linked_absence = self._find_linked_absence(ac, entry_type, entry_id)
+
+        if not linked_absence:
+            messagebox.showwarning("Aviso", "Não foi possível vincular a falta para esta entrada.")
+            return
+
+        linked_absence.is_symbolic = not linked_absence.is_symbolic
+        self._show_acolyte_detail()
+        self.app.save()
+
+    def _toggle_schedule_symbolic_missed(self):
+        self._toggle_symbolic_linked_absence("schedule")
+
+    def _toggle_event_symbolic_missed(self):
+        self._toggle_symbolic_linked_absence("event")
+
     # --------------------------------------------------------------------- #
     #  Unavailabilities
     # --------------------------------------------------------------------- #
@@ -1111,7 +1198,8 @@ class AcolytesTab(ttk.Frame):
         if not self.app.acolytes:
             messagebox.showinfo("Aviso", "Nenhum acólito cadastrado.")
             return
-        dlg = CloseCicloDialog(self.app.root)
+        self._save_current_cycle_name()
+        dlg = CloseCicloDialog(self.app.root, initial_label=self.app.current_cycle_name)
         if not dlg.result:
             return
         label, reset_bonus = dlg.result
@@ -1145,6 +1233,8 @@ class AcolytesTab(ttk.Frame):
         self.app.finalized_event_batches.clear()
         self.app.schedule_slots.clear()
         self.app.general_events.clear()
+        self.app.current_cycle_name = ""
+        self.sync_current_cycle_name()
 
         if self._current_acolyte:
             self._show_acolyte_detail()
@@ -1160,6 +1250,7 @@ class AcolytesTab(ttk.Frame):
         if not self.app.acolytes:
             messagebox.showinfo("Aviso", "Nenhum acólito cadastrado.")
             return
+        self._save_current_cycle_name()
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF", "*.pdf")],
@@ -1181,6 +1272,7 @@ class AcolytesTab(ttk.Frame):
                 finalized_entries,
                 self.app.generated_schedules,
                 self.app.include_activity_table_per_acolyte,
+                self.app.current_cycle_name,
             )
             if messagebox.askyesno("Sucesso", f"Relatório gerado em:\n{path}\n\nDeseja abrir o arquivo?"):
                 self._open_file(path)

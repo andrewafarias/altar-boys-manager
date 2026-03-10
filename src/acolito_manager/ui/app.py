@@ -34,6 +34,8 @@ class App:
         self.custom_common_times: List[str] = []
         self.include_suspended_in_general_event: bool = True
         self.include_activity_table_per_acolyte: bool = True
+        self.auto_lift_suspensions_on_end_date: bool = False
+        self.current_cycle_name: str = ""
 
         self.root = tk.Tk()
         self.root.title("Gerenciador de Acólitos")
@@ -89,6 +91,14 @@ class App:
             variable=self._include_activity_table_per_acolyte_var,
             command=self._on_toggle_include_activity_table_per_acolyte,
         )
+        self._auto_lift_suspensions_var = tk.BooleanVar(
+            value=self.auto_lift_suspensions_on_end_date
+        )
+        settings_menu.add_checkbutton(
+            label="Levantar suspensões automaticamente ao atingir data final",
+            variable=self._auto_lift_suspensions_var,
+            command=self._on_toggle_auto_lift_suspensions,
+        )
 
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Ajuda", menu=help_menu)
@@ -123,6 +133,8 @@ class App:
             self.custom_common_times,
             self.include_suspended_in_general_event,
             self.include_activity_table_per_acolyte,
+            self.auto_lift_suspensions_on_end_date,
+            self.current_cycle_name,
         ) = result
         if hasattr(self, "_include_suspended_general_event_var"):
             self._include_suspended_general_event_var.set(
@@ -132,9 +144,14 @@ class App:
             self._include_activity_table_per_acolyte_var.set(
                 self.include_activity_table_per_acolyte
             )
+        if hasattr(self, "_auto_lift_suspensions_var"):
+            self._auto_lift_suspensions_var.set(
+                self.auto_lift_suspensions_on_end_date
+            )
         self.schedule_tab.refresh_acolyte_list()
         self.schedule_tab.load_slots_from_data(adapt_dates=True)
         self.events_tab.refresh_list()
+        self.acolytes_tab.sync_current_cycle_name()
         self.acolytes_tab.refresh_list()
         self.history_tab.refresh()
 
@@ -150,6 +167,8 @@ class App:
             self.custom_common_times,
             self.include_suspended_in_general_event,
             self.include_activity_table_per_acolyte,
+            self.auto_lift_suspensions_on_end_date,
+            self.current_cycle_name,
         )
 
     def _on_toggle_include_suspended_general_event(self):
@@ -161,6 +180,12 @@ class App:
     def _on_toggle_include_activity_table_per_acolyte(self):
         self.include_activity_table_per_acolyte = bool(
             self._include_activity_table_per_acolyte_var.get()
+        )
+        self.save()
+
+    def _on_toggle_auto_lift_suspensions(self):
+        self.auto_lift_suspensions_on_end_date = bool(
+            self._auto_lift_suspensions_var.get()
         )
         self.save()
 
@@ -201,6 +226,8 @@ class App:
                 self.custom_common_times,
                 self.include_suspended_in_general_event,
                 self.include_activity_table_per_acolyte,
+                self.auto_lift_suspensions_on_end_date,
+                self.current_cycle_name,
             )
             messagebox.showinfo("Sucesso", f"Dados exportados com sucesso para:\n{path}")
         except Exception as e:
@@ -232,6 +259,8 @@ class App:
                 custom_common_times,
                 include_suspended_in_general_event,
                 include_activity_table_per_acolyte,
+                auto_lift_suspensions_on_end_date,
+                current_cycle_name,
             ) = import_from_file(path)
             self.acolytes = acolytes
             self.schedule_slots = schedule_slots
@@ -243,6 +272,8 @@ class App:
             self.custom_common_times = custom_common_times
             self.include_suspended_in_general_event = include_suspended_in_general_event
             self.include_activity_table_per_acolyte = include_activity_table_per_acolyte
+            self.auto_lift_suspensions_on_end_date = auto_lift_suspensions_on_end_date
+            self.current_cycle_name = current_cycle_name
             self.save()
             self._load_data()
             messagebox.showinfo(

@@ -9,6 +9,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate,
+    PageBreak,
     Paragraph,
     Spacer,
     Table,
@@ -127,6 +128,7 @@ def generate_report(
     registered_events: List[FinalizedEventBatchEntry] = None,
     generated_schedules: List[GeneratedSchedule] = None,
     include_activity_table_per_acolyte: bool = True,
+    cycle_name: str = "",
 ) -> str:
     """
     Gera um relatório PDF com os dados de todos os acólitos.
@@ -192,8 +194,10 @@ def generate_report(
     # PRIMEIRA PÁGINA: Resumo Geral
     # =====================================================================
     story.append(Paragraph("Relatório de Acólitos", style_title))
+    if cycle_name.strip():
+        story.append(Paragraph(f"Ciclo: <b>{cycle_name.strip()}</b>", style_body))
     story.append(Spacer(1, 0.3 * cm))
-    story.append(Paragraph("Resumo Geral", style_section))
+    story.append(Paragraph('<a name="resumo_geral"/>Resumo Geral', style_section))
     story.append(Spacer(1, 0.2 * cm))
 
     # Tabela de resumo com hyperlinks nos nomes
@@ -398,6 +402,8 @@ def generate_report(
     # =====================================================================
     # PÁGINAS INDIVIDUAIS: Detalhes de cada acólito
     # =====================================================================
+    story.append(PageBreak())
+
     for idx, acolyte in enumerate(acolytes):
         if idx > 0:
             # Separate acolyte sections without forcing a new page.
@@ -408,7 +414,7 @@ def generate_report(
 
         # Nome do acólito com âncora
         story.append(Paragraph(
-            f'<a name="{anchor}"/>{acolyte.name}',
+            f'<a name="{anchor}"/><a href="#resumo_geral" color="#1a0dab"><u>{acolyte.name}</u></a>',
             style_acolyte_name,
         ))
 

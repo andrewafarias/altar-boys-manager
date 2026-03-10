@@ -981,7 +981,8 @@ class EditGeneralEventExcludedDialog(BaseDialog):
 class CloseCicloDialog(BaseDialog):
     """Diálogo para fechar o ciclo atual."""
 
-    def __init__(self, parent):
+    def __init__(self, parent, initial_label: str = ""):
+        self._initial_label = initial_label
         super().__init__(parent, "Fechar Ciclo")
         self._build()
         self._center()
@@ -992,7 +993,7 @@ class CloseCicloDialog(BaseDialog):
         frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(frame, text="Rótulo do ciclo (ex: 1º Semestre 2025):").pack(anchor="w", pady=(0, 4))
-        self.label_var = tk.StringVar()
+        self.label_var = tk.StringVar(value=self._initial_label)
         ttk.Entry(frame, textvariable=self.label_var, width=36).pack(fill=tk.X, pady=4)
 
         sep = ttk.Separator(frame, orient=tk.HORIZONTAL)
