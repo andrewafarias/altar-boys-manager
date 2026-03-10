@@ -457,19 +457,22 @@ def generate_report(
             else:
                 story.append(Paragraph("Nenhuma atividade registrada.", style_body))
 
+
         # --- Faltas ---
         story.append(Paragraph("Faltas", style_section))
         if acolyte.absences:
-            header = [["Data", "Descrição"]]
-            rows = [[a.date, a.description or "-"] for a in acolyte.absences]
+            header = [["Data", "Descrição", "Status"]]
+            rows = [
+                [a.date, a.description or "-", "(não contada)" if a.is_symbolic else ""]
+                for a in acolyte.absences
+            ]
             table = _build_table(
                 header + rows,
-                [3 * cm, page_width - 3 * cm],
+                [2.5 * cm, page_width - 5 * cm, 2.5 * cm],
             )
             story.append(table)
         else:
             story.append(Paragraph("Nenhuma falta registrada.", style_body))
-
         # --- Suspensões ---
         story.append(Paragraph("Suspensões", style_section))
         if acolyte.suspensions:

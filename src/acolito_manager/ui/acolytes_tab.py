@@ -172,11 +172,12 @@ class AcolytesTab(ttk.Frame):
         ttk.Button(event_btn_frame, text="⚠️ Marcar/Desmarcar Faltou", command=self._toggle_event_missed).pack(side=tk.LEFT, padx=2)
 
         self._tree_absences = self._make_tree(
-            self._tab_absences, ("Data", "Descrição", "Vinculada"), (100, 260, 110)
+            self._tab_absences, ("Data", "Descrição", "Vinculada", "Simbólica"), (100, 260, 110, 90)
         )
         abs_btn_frame = ttk.Frame(self._tab_absences)
         abs_btn_frame.pack(fill=tk.X, pady=2)
         ttk.Button(abs_btn_frame, text="🗑️ Excluir Falta", command=self._delete_absence).pack(side=tk.LEFT, padx=2)
+        ttk.Button(abs_btn_frame, text="🏷️ Marcar/Desmarcar Simbólica", command=self._toggle_symbolic_absence).pack(side=tk.LEFT, padx=2)
         self._tree_suspensions = self._make_tree(
             self._tab_suspensions, ("Motivo", "Início", "Fim", "Ativa"), (180, 100, 100, 60)
         )
@@ -360,13 +361,14 @@ class AcolytesTab(ttk.Frame):
             (e.name, e.date, e.time or "-", "Sim" if e.missed else "Não") for e in ac.event_history
         ])
         self._refresh_tree(self._tree_absences, [
-            (
-                a.date,
-                a.description or "-",
-                "Sim" if a.linked_entry_type else "Não",
-            )
-            for a in ac.absences
-        ])
+                (
+                    a.date,
+                    a.description or "-",
+                    "Sim" if a.linked_entry_type else "Não",
+                    "(não contada)" if a.is_symbolic else "",
+                )
+                for a in ac.absences
+            ])
         self._refresh_tree(self._tree_suspensions, [
             (s.reason, s.start_date, s.end_date or "-", "Sim" if s.is_active else "Não")
             for s in ac.suspensions
@@ -662,10 +664,28 @@ class AcolytesTab(ttk.Frame):
         if not messagebox.askyesno("Confirmar", f"Excluir falta de {absence.date}?"):
             return
         self._clear_linked_missed_flag(ac, absence)
+
         ac.absences.pop(idx)
         self._show_acolyte_detail()
         self.app.save()
 
+    def _toggle_symbolic_absence(self):
+        if not self._current_acolyte:
+            return
+        sel = self._tree_absences.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma falta para editar.")
+            return
+        idx = self._tree_absences.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.absences):
+            return
+        absence = ac.absences[idx]
+        absence.is_symbolic = not absence.is_symbolic
+        status = "(não contada)" if absence.is_symbolic else "(contada)"
+        messagebox.showinfo("Sucesso", f"Falta de {absence.date} agora é {status}")
+        self._show_acolyte_detail()
+        self.app.save()
     # --------------------------------------------------------------------- #
     #  Bonus
     # --------------------------------------------------------------------- #

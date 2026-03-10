@@ -50,7 +50,7 @@ class ScheduleSlotCard(ttk.LabelFrame):
 
     def __init__(self, parent, slot: ScheduleSlot, app, **kwargs):
         title = (
-            f"⛪ Atividade Geral #{slot.id[:6]}"
+            f"Escala Geral #{slot.id[:6]}"
             if slot.is_general_event
             else f"Horário #{slot.id[:6]}"
         )
@@ -104,11 +104,13 @@ class ScheduleSlotCard(ttk.LabelFrame):
 
         row4 = ttk.Frame(self)
         row4.pack(fill=tk.X, pady=2)
-        ttk.Button(
-            row4,
-            text="➕ Adicionar Acólito(s) Selecionado(s)",
-            command=self._add_selected_acolytes,
-        ).pack(side=tk.LEFT)
+        
+        if not self.slot.is_general_event:
+            ttk.Button(
+                row4,
+                text="➕ Adicionar Acólito(s) Selecionado(s)",
+                command=self._add_selected_acolytes,
+            ).pack(side=tk.LEFT)
 
         if self.slot.is_general_event:
             ttk.Button(
@@ -326,20 +328,49 @@ class ScheduleSlotCard(ttk.LabelFrame):
             for eid in self.slot.suspended_excluded_acolyte_ids:
                 ac = self.app.find_acolyte(eid)
                 if ac:
-                    suspended_excluded_names.append(f"{ac.name} (susp.)")
+                    suspended_excluded_names.append(ac.name)
 
-            all_excluded = excluded_names + suspended_excluded_names
-            if all_excluded:
-                formatted = self._format_excluded_indicator(all_excluded)
-                indicator_text = f"(excluído: {formatted})"
+            if excluded_names or suspended_excluded_names:
+                # Create a frame to hold multiple labels with different colors
+                labels_frame = ttk.Frame(self.acolyte_frame)
+                labels_frame.grid(row=1, column=0, sticky="w", pady=(2, 0))
+                
+                # Label for "excluído: " prefix
                 ttk.Label(
-                    self.acolyte_frame,
-                    text=indicator_text,
+                    labels_frame,
+                    text="excluído: ",
                     font=("TkDefaultFont", 8),
                     foreground="gray",
-                    justify=tk.LEFT,
-                    wraplength=340,
-                ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+                ).pack(side=tk.LEFT)
+                
+                # Label for regular excluded names
+                if excluded_names:
+                    formatted_excluded = ", ".join(excluded_names)
+                    ttk.Label(
+                        labels_frame,
+                        text=formatted_excluded,
+                        font=("TkDefaultFont", 8),
+                        foreground="gray",
+                    ).pack(side=tk.LEFT)
+                
+                # Separator comma if both types exist
+                if excluded_names and suspended_excluded_names:
+                    ttk.Label(
+                        labels_frame,
+                        text=", ",
+                        font=("TkDefaultFont", 8),
+                        foreground="gray",
+                    ).pack(side=tk.LEFT)
+                
+                # Label for suspended excluded names (light red)
+                if suspended_excluded_names:
+                    formatted_suspended = ", ".join(suspended_excluded_names)
+                    tk.Label(
+                        labels_frame,
+                        text=formatted_suspended,
+                        font=("TkDefaultFont", 8),
+                        foreground="#ff6b6b",
+                    ).pack(side=tk.LEFT)
             
             return
 

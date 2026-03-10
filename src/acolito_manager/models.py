@@ -32,12 +32,14 @@ class Unavailability:
         )
 
 
+
 @dataclass
 class Absence:
     date: str
     description: str
     linked_entry_type: str = ""
     linked_entry_id: str = ""
+    is_symbolic: bool = False
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
@@ -47,6 +49,7 @@ class Absence:
             "description": self.description,
             "linked_entry_type": self.linked_entry_type,
             "linked_entry_id": self.linked_entry_id,
+            "is_symbolic": self.is_symbolic,
         }
 
     @classmethod
@@ -57,8 +60,8 @@ class Absence:
             description=data.get("description", ""),
             linked_entry_type=data.get("linked_entry_type", ""),
             linked_entry_id=data.get("linked_entry_id", ""),
+            is_symbolic=data.get("is_symbolic", False),
         )
-
 
 @dataclass
 class Suspension:
@@ -192,10 +195,10 @@ class Acolyte:
     event_history: List[EventHistoryEntry] = field(default_factory=list)
     unavailabilities: List[Unavailability] = field(default_factory=list)
 
+
     @property
     def absence_count(self) -> int:
-        return len(self.absences)
-
+        return len([a for a in self.absences if not a.is_symbolic])
     @property
     def suspension_count(self) -> int:
         return len(self.suspensions)
