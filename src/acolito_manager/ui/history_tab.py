@@ -602,18 +602,25 @@ class HistoryTab(ttk.Frame):
             return
 
         try:
-            from ..models import Acolyte, FinalizedEventBatchEntry, FinalizedEventBatch
+            from ..models import Acolyte, FinalizedEventBatchEntry, FinalizedEventBatch, GeneratedSchedule
             acolytes = sorted(
                 [Acolyte.from_dict(a) for a in ch.acolytes_snapshot],
                 key=lambda a: a.name.lower()
             )
+            generated_schedules = [GeneratedSchedule.from_dict(gs) for gs in ch.generated_schedules_snapshot]
             # Reconstruct finalized event entries from snapshot
             finalized_entries = []
             for fb_dict in ch.finalized_event_batches_snapshot:
                 fb = FinalizedEventBatch.from_dict(fb_dict)
                 finalized_entries.extend(fb.entries)
 
-            generate_report(acolytes, path, finalized_entries)
+            generate_report(
+                acolytes,
+                path,
+                finalized_entries,
+                generated_schedules,
+                self.app.include_activity_table_per_acolyte,
+            )
             if messagebox.askyesno(
                 "Sucesso",
                 f"Relatório do ciclo '{ch.label}' gerado em:\n{path}\n\nDeseja abrir?"

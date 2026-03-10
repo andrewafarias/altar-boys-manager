@@ -913,6 +913,71 @@ class GeneralEventUnavailabilityDialog(BaseDialog):
         self.destroy()
 
 
+class EditGeneralEventExcludedDialog(BaseDialog):
+    """Edita quais acólitos serão excluídos de uma escala geral."""
+
+    def __init__(
+        self,
+        parent,
+        acolytes,
+        excluded_ids,
+        suspended_locked_ids=None,
+    ):
+        self._acolytes = acolytes
+        self._excluded_ids = set(excluded_ids or [])
+        self._suspended_locked_ids = set(suspended_locked_ids or [])
+        super().__init__(parent, "Editar Excluídos - Escala Geral")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="Marque os acólitos que devem ficar excluídos desta escala geral:",
+            justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        if self._suspended_locked_ids:
+            ttk.Label(
+                frame,
+                text="(suspensos estão bloqueados enquanto a configuração de inclusão estiver desativada)",
+                foreground="gray",
+                justify="left",
+            ).pack(anchor="w", pady=(0, 6))
+
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        self._vars = []
+        for ac in self._acolytes:
+            locked = ac.id in self._suspended_locked_ids
+            default_checked = locked or (ac.id in self._excluded_ids)
+            var = tk.BooleanVar(value=default_checked)
+            self._vars.append((ac, var, locked))
+            suffix = " (susp.)" if locked else ""
+            cb = ttk.Checkbutton(list_frame, text=f"{ac.name}{suffix}", variable=var)
+            cb.pack(anchor="w", padx=4, pady=1)
+            if locked:
+                cb.state(["disabled"])
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Salvar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        selected_ids = []
+        for ac, var, locked in self._vars:
+            if locked or var.get():
+                selected_ids.append(ac.id)
+        self.result = selected_ids
+        self.destroy()
+
+
 class CloseCicloDialog(BaseDialog):
     """Diálogo para fechar o ciclo atual."""
 

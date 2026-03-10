@@ -31,6 +31,8 @@ def save_data(
     standard_slots: List[StandardSlot] = None,
     ciclo_history: List[CicloHistoryEntry] = None,
     custom_common_times: List[str] = None,
+    include_suspended_in_general_event: bool = True,
+    include_activity_table_per_acolyte: bool = True,
 ) -> None:
     """Salva todos os dados no arquivo JSON."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,6 +45,8 @@ def save_data(
         "standard_slots": [ss.to_dict() for ss in (standard_slots or [])],
         "ciclo_history": [ch.to_dict() for ch in (ciclo_history or [])],
         "custom_common_times": custom_common_times if custom_common_times is not None else DEFAULT_COMMON_TIMES,
+        "include_suspended_in_general_event": include_suspended_in_general_event,
+        "include_activity_table_per_acolyte": include_activity_table_per_acolyte,
     }
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -51,7 +55,7 @@ def save_data(
 def load_data():
     """Carrega os dados do arquivo JSON. Retorna listas vazias se o arquivo não existir."""
     if not DATA_FILE.exists():
-        return [], [], [], [], [], [], [], list(DEFAULT_COMMON_TIMES)
+        return [], [], [], [], [], [], [], list(DEFAULT_COMMON_TIMES), True, True
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -63,9 +67,22 @@ def load_data():
         standard_slots = [StandardSlot.from_dict(ss) for ss in data.get("standard_slots", [])]
         ciclo_history = [CicloHistoryEntry.from_dict(ch) for ch in data.get("ciclo_history", [])]
         custom_common_times = data.get("custom_common_times", list(DEFAULT_COMMON_TIMES))
-        return acolytes, schedule_slots, general_events, generated_schedules, finalized_event_batches, standard_slots, ciclo_history, custom_common_times
+        include_suspended_in_general_event = data.get("include_suspended_in_general_event", True)
+        include_activity_table_per_acolyte = data.get("include_activity_table_per_acolyte", True)
+        return (
+            acolytes,
+            schedule_slots,
+            general_events,
+            generated_schedules,
+            finalized_event_batches,
+            standard_slots,
+            ciclo_history,
+            custom_common_times,
+            include_suspended_in_general_event,
+            include_activity_table_per_acolyte,
+        )
     except (json.JSONDecodeError, KeyError, TypeError):
-        return [], [], [], [], [], [], [], list(DEFAULT_COMMON_TIMES)
+        return [], [], [], [], [], [], [], list(DEFAULT_COMMON_TIMES), True, True
 
 
 def export_to_file(
@@ -78,6 +95,8 @@ def export_to_file(
     standard_slots: List[StandardSlot] = None,
     ciclo_history: List[CicloHistoryEntry] = None,
     custom_common_times: List[str] = None,
+    include_suspended_in_general_event: bool = True,
+    include_activity_table_per_acolyte: bool = True,
 ) -> None:
     """Exporta todos os dados para um arquivo JSON externo."""
     data = {
@@ -89,6 +108,8 @@ def export_to_file(
         "standard_slots": [ss.to_dict() for ss in (standard_slots or [])],
         "ciclo_history": [ch.to_dict() for ch in (ciclo_history or [])],
         "custom_common_times": custom_common_times if custom_common_times is not None else DEFAULT_COMMON_TIMES,
+        "include_suspended_in_general_event": include_suspended_in_general_event,
+        "include_activity_table_per_acolyte": include_activity_table_per_acolyte,
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -106,4 +127,17 @@ def import_from_file(path: str):
     standard_slots = [StandardSlot.from_dict(ss) for ss in data.get("standard_slots", [])]
     ciclo_history = [CicloHistoryEntry.from_dict(ch) for ch in data.get("ciclo_history", [])]
     custom_common_times = data.get("custom_common_times", list(DEFAULT_COMMON_TIMES))
-    return acolytes, schedule_slots, general_events, generated_schedules, finalized_event_batches, standard_slots, ciclo_history, custom_common_times
+    include_suspended_in_general_event = data.get("include_suspended_in_general_event", True)
+    include_activity_table_per_acolyte = data.get("include_activity_table_per_acolyte", True)
+    return (
+        acolytes,
+        schedule_slots,
+        general_events,
+        generated_schedules,
+        finalized_event_batches,
+        standard_slots,
+        ciclo_history,
+        custom_common_times,
+        include_suspended_in_general_event,
+        include_activity_table_per_acolyte,
+    )

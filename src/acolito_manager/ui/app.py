@@ -32,6 +32,8 @@ class App:
         self.standard_slots: List[StandardSlot] = []
         self.ciclo_history: List[CicloHistoryEntry] = []
         self.custom_common_times: List[str] = []
+        self.include_suspended_in_general_event: bool = True
+        self.include_activity_table_per_acolyte: bool = True
 
         self.root = tk.Tk()
         self.root.title("Gerenciador de Acólitos")
@@ -69,6 +71,25 @@ class App:
         file_menu.add_separator()
         file_menu.add_command(label="Sair", command=self.root.quit)
 
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Configurações", menu=settings_menu)
+        self._include_suspended_general_event_var = tk.BooleanVar(
+            value=self.include_suspended_in_general_event
+        )
+        settings_menu.add_checkbutton(
+            label="Incluir acólitos suspensos na Escala Geral",
+            variable=self._include_suspended_general_event_var,
+            command=self._on_toggle_include_suspended_general_event,
+        )
+        self._include_activity_table_per_acolyte_var = tk.BooleanVar(
+            value=self.include_activity_table_per_acolyte
+        )
+        settings_menu.add_checkbutton(
+            label="Incluir tabela de atividades para cada acólito",
+            variable=self._include_activity_table_per_acolyte_var,
+            command=self._on_toggle_include_activity_table_per_acolyte,
+        )
+
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Ajuda", menu=help_menu)
         help_menu.add_command(label="Sobre", command=self._show_about)
@@ -100,7 +121,17 @@ class App:
             self.standard_slots,
             self.ciclo_history,
             self.custom_common_times,
+            self.include_suspended_in_general_event,
+            self.include_activity_table_per_acolyte,
         ) = result
+        if hasattr(self, "_include_suspended_general_event_var"):
+            self._include_suspended_general_event_var.set(
+                self.include_suspended_in_general_event
+            )
+        if hasattr(self, "_include_activity_table_per_acolyte_var"):
+            self._include_activity_table_per_acolyte_var.set(
+                self.include_activity_table_per_acolyte
+            )
         self.schedule_tab.refresh_acolyte_list()
         self.schedule_tab.load_slots_from_data(adapt_dates=True)
         self.events_tab.refresh_list()
@@ -117,7 +148,21 @@ class App:
             self.standard_slots,
             self.ciclo_history,
             self.custom_common_times,
+            self.include_suspended_in_general_event,
+            self.include_activity_table_per_acolyte,
         )
+
+    def _on_toggle_include_suspended_general_event(self):
+        self.include_suspended_in_general_event = bool(
+            self._include_suspended_general_event_var.get()
+        )
+        self.save()
+
+    def _on_toggle_include_activity_table_per_acolyte(self):
+        self.include_activity_table_per_acolyte = bool(
+            self._include_activity_table_per_acolyte_var.get()
+        )
+        self.save()
 
     def find_acolyte(self, acolyte_id: str) -> Optional[Acolyte]:
         for ac in self.acolytes:
@@ -154,6 +199,8 @@ class App:
                 self.standard_slots,
                 self.ciclo_history,
                 self.custom_common_times,
+                self.include_suspended_in_general_event,
+                self.include_activity_table_per_acolyte,
             )
             messagebox.showinfo("Sucesso", f"Dados exportados com sucesso para:\n{path}")
         except Exception as e:
@@ -183,6 +230,8 @@ class App:
                 standard_slots,
                 ciclo_history,
                 custom_common_times,
+                include_suspended_in_general_event,
+                include_activity_table_per_acolyte,
             ) = import_from_file(path)
             self.acolytes = acolytes
             self.schedule_slots = schedule_slots
@@ -192,6 +241,8 @@ class App:
             self.standard_slots = standard_slots
             self.ciclo_history = ciclo_history
             self.custom_common_times = custom_common_times
+            self.include_suspended_in_general_event = include_suspended_in_general_event
+            self.include_activity_table_per_acolyte = include_activity_table_per_acolyte
             self.save()
             self._load_data()
             messagebox.showinfo(

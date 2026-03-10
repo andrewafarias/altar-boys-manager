@@ -36,14 +36,28 @@ class Unavailability:
 class Absence:
     date: str
     description: str
+    linked_entry_type: str = ""
+    linked_entry_id: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "date": self.date, "description": self.description}
+        return {
+            "id": self.id,
+            "date": self.date,
+            "description": self.description,
+            "linked_entry_type": self.linked_entry_type,
+            "linked_entry_id": self.linked_entry_id,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Absence":
-        return cls(id=data["id"], date=data["date"], description=data.get("description", ""))
+        return cls(
+            id=data["id"],
+            date=data["date"],
+            description=data.get("description", ""),
+            linked_entry_type=data.get("linked_entry_type", ""),
+            linked_entry_id=data.get("linked_entry_id", ""),
+        )
 
 
 @dataclass
@@ -112,6 +126,7 @@ class ScheduleHistoryEntry:
     day: str
     time: str
     description: str
+    missed: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -120,6 +135,7 @@ class ScheduleHistoryEntry:
             "day": self.day,
             "time": self.time,
             "description": self.description,
+            "missed": self.missed,
         }
 
     @classmethod
@@ -130,6 +146,7 @@ class ScheduleHistoryEntry:
             day=data["day"],
             time=data["time"],
             description=data.get("description", ""),
+            missed=data.get("missed", False),
         )
 
 
@@ -139,6 +156,7 @@ class EventHistoryEntry:
     name: str
     date: str
     time: str
+    missed: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -146,6 +164,7 @@ class EventHistoryEntry:
             "name": self.name,
             "date": self.date,
             "time": self.time,
+            "missed": self.missed,
         }
 
     @classmethod
@@ -155,6 +174,7 @@ class EventHistoryEntry:
             name=data["name"],
             date=data["date"],
             time=data.get("time", ""),
+            missed=data.get("missed", False),
         )
 
 
@@ -230,6 +250,8 @@ class ScheduleSlot:
     general_event_name: str = ""
     include_as_activity: bool = True
     include_as_schedule: bool = True
+    excluded_acolyte_ids: List[str] = field(default_factory=list)
+    suspended_excluded_acolyte_ids: List[str] = field(default_factory=list)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
@@ -244,6 +266,8 @@ class ScheduleSlot:
             "general_event_name": self.general_event_name,
             "include_as_activity": self.include_as_activity,
             "include_as_schedule": self.include_as_schedule,
+            "excluded_acolyte_ids": self.excluded_acolyte_ids,
+            "suspended_excluded_acolyte_ids": self.suspended_excluded_acolyte_ids,
         }
 
     @classmethod
@@ -259,6 +283,8 @@ class ScheduleSlot:
             general_event_name=data.get("general_event_name", ""),
             include_as_activity=data.get("include_as_activity", True),
             include_as_schedule=data.get("include_as_schedule", True),
+            excluded_acolyte_ids=data.get("excluded_acolyte_ids", []),
+            suspended_excluded_acolyte_ids=data.get("suspended_excluded_acolyte_ids", []),
         )
 
 
@@ -298,6 +324,7 @@ class GeneratedScheduleSlotSnapshot:
     time: str
     description: str
     acolyte_ids: List[str]
+    is_general_event: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -307,6 +334,7 @@ class GeneratedScheduleSlotSnapshot:
             "time": self.time,
             "description": self.description,
             "acolyte_ids": self.acolyte_ids,
+            "is_general_event": self.is_general_event,
         }
 
     @classmethod
@@ -318,6 +346,7 @@ class GeneratedScheduleSlotSnapshot:
             time=data["time"],
             description=data.get("description", ""),
             acolyte_ids=data.get("acolyte_ids", []),
+            is_general_event=data.get("is_general_event", False),
         )
 
 

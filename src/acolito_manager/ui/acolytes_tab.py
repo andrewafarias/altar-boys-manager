@@ -154,24 +154,29 @@ class AcolytesTab(ttk.Frame):
 
         # Criação das tabelas
         self._tree_schedule = self._make_tree(
-            self._tab_schedule, ("Data", "Dia", "Horário", "Descrição"), (80, 120, 70, 200)
+            self._tab_schedule, ("Data", "Dia", "Horário", "Descrição", "Faltou"), (80, 120, 70, 180, 70)
         )
         sched_btn_frame = ttk.Frame(self._tab_schedule)
         sched_btn_frame.pack(fill=tk.X, pady=2)
         ttk.Button(sched_btn_frame, text="➕ Adicionar Entrada", command=self._add_schedule_entry).pack(side=tk.LEFT, padx=2)
         ttk.Button(sched_btn_frame, text="🗑️ Excluir Entrada", command=self._delete_schedule_entry).pack(side=tk.LEFT, padx=2)
+        ttk.Button(sched_btn_frame, text="⚠️ Marcar/Desmarcar Faltou", command=self._toggle_schedule_missed).pack(side=tk.LEFT, padx=2)
 
         self._tree_events = self._make_tree(
-            self._tab_events, ("Nome da Atividade", "Data", "Horário"), (220, 80, 80)
+            self._tab_events, ("Nome da Atividade", "Data", "Horário", "Faltou"), (210, 80, 80, 70)
         )
         event_btn_frame = ttk.Frame(self._tab_events)
         event_btn_frame.pack(fill=tk.X, pady=2)
         ttk.Button(event_btn_frame, text="➕ Adicionar Entrada", command=self._add_event_entry).pack(side=tk.LEFT, padx=2)
         ttk.Button(event_btn_frame, text="🗑️ Excluir Entrada", command=self._delete_event_entry).pack(side=tk.LEFT, padx=2)
+        ttk.Button(event_btn_frame, text="⚠️ Marcar/Desmarcar Faltou", command=self._toggle_event_missed).pack(side=tk.LEFT, padx=2)
 
         self._tree_absences = self._make_tree(
-            self._tab_absences, ("Data", "Descrição"), (100, 300)
+            self._tab_absences, ("Data", "Descrição", "Vinculada"), (100, 260, 110)
         )
+        abs_btn_frame = ttk.Frame(self._tab_absences)
+        abs_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(abs_btn_frame, text="🗑️ Excluir Falta", command=self._delete_absence).pack(side=tk.LEFT, padx=2)
         self._tree_suspensions = self._make_tree(
             self._tab_suspensions, ("Motivo", "Início", "Fim", "Ativa"), (180, 100, 100, 60)
         )
@@ -349,13 +354,18 @@ class AcolytesTab(ttk.Frame):
 
         # Atualiza as tabelas
         self._refresh_tree(self._tree_schedule, [
-            (e.date, e.day, e.time, e.description or "-") for e in ac.schedule_history
+            (e.date, e.day, e.time, e.description or "-", "Sim" if e.missed else "Não") for e in ac.schedule_history
         ])
         self._refresh_tree(self._tree_events, [
-            (e.name, e.date, e.time or "-") for e in ac.event_history
+            (e.name, e.date, e.time or "-", "Sim" if e.missed else "Não") for e in ac.event_history
         ])
         self._refresh_tree(self._tree_absences, [
-            (a.date, a.description or "-") for a in ac.absences
+            (
+                a.date,
+                a.description or "-",
+                "Sim" if a.linked_entry_type else "Não",
+            )
+            for a in ac.absences
         ])
         self._refresh_tree(self._tree_suspensions, [
             (s.reason, s.start_date, s.end_date or "-", "Sim" if s.is_active else "Não")
@@ -398,6 +408,59 @@ class AcolytesTab(ttk.Frame):
         tree.delete(*tree.get_children())
         for row in rows:
             tree.insert("", tk.END, values=row)
+
+    def _to_short_date(self, date_str: str) -> str:
+        try:
+            return datetime.strptime(date_str, "%d/%m/%Y").strftime("%d/%m/%y")
+        except ValueError:
+            return date_str or "-"
+
+    def _find_linked_absence(self, ac: Acolyte, entry_type: str, entry_id: str) -> Optional[Absence]:
+        for absence in ac.absences:
+            if absence.linked_entry_type == entry_type and absence.linked_entry_id == entry_id:
+                return absence
+        return None
+
+    def _clear_linked_missed_flag(self, ac: Acolyte, absence: Absence):
+        if absence.linked_entry_type == "schedule":
+            for entry in ac.schedule_history:
+                if entry.schedule_id == absence.linked_entry_id:
+                    entry.missed = False
+                    return
+        if absence.linked_entry_type == "event":
+            for entry in ac.event_history:
+                if entry.event_id == absence.linked_entry_id:
+                    entry.missed = False
+                    return
+
+    def _build_linked_absence_description(self, entry_type: str, entry) -> str:
+        label = "atividade" if entry_type == "event" else "escala"
+        if entry_type == "event":
+            detail = entry.name or "Sem descrição"
+        else:
+            detail = entry.description or "Sem descrição"
+        return f"Faltou {label}: {detail} {self._to_short_date(entry.date)} {entry.time or '-'}"
+
+    def _sync_linked_absence(self, ac: Acolyte, entry_type: str, entry, missed: bool):
+        entry_id = entry.event_id if entry_type == "event" else entry.schedule_id
+        existing = self._find_linked_absence(ac, entry_type, entry_id)
+        if missed:
+            description = self._build_linked_absence_description(entry_type, entry)
+            if existing:
+                existing.date = entry.date
+                existing.description = description
+            else:
+                ac.absences.append(
+                    Absence(
+                        id=str(uuid.uuid4()),
+                        date=entry.date,
+                        description=description,
+                        linked_entry_type=entry_type,
+                        linked_entry_id=entry_id,
+                    )
+                )
+        elif existing:
+            ac.absences.remove(existing)
 
     def _check_suspension_expiry(self, ac):
         """Check if any suspension end_date has been reached."""
@@ -583,6 +646,25 @@ class AcolytesTab(ttk.Frame):
             self._current_acolyte.absences.append(absence)
             self._show_acolyte_detail()
             self.app.save()
+
+    def _delete_absence(self):
+        if not self._current_acolyte:
+            return
+        sel = self._tree_absences.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma falta para excluir.")
+            return
+        idx = self._tree_absences.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.absences):
+            return
+        absence = ac.absences[idx]
+        if not messagebox.askyesno("Confirmar", f"Excluir falta de {absence.date}?"):
+            return
+        self._clear_linked_missed_flag(ac, absence)
+        ac.absences.pop(idx)
+        self._show_acolyte_detail()
+        self.app.save()
 
     # --------------------------------------------------------------------- #
     #  Bonus
@@ -773,9 +855,27 @@ class AcolytesTab(ttk.Frame):
         entry = ac.schedule_history[idx]
         if not messagebox.askyesno("Confirmar", f"Excluir entrada de escala ({entry.date} {entry.time})?"):
             return
+        self._sync_linked_absence(ac, "schedule", entry, False)
         ac.schedule_history.pop(idx)
         if ac.times_scheduled > 0:
             ac.times_scheduled -= 1
+        self._show_acolyte_detail()
+        self.app.save()
+
+    def _toggle_schedule_missed(self):
+        if not self._current_acolyte:
+            return
+        sel = self._tree_schedule.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma entrada de escala para marcar/desmarcar falta.")
+            return
+        idx = self._tree_schedule.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.schedule_history):
+            return
+        entry = ac.schedule_history[idx]
+        entry.missed = not entry.missed
+        self._sync_linked_absence(ac, "schedule", entry, entry.missed)
         self._show_acolyte_detail()
         self.app.save()
 
@@ -813,7 +913,25 @@ class AcolytesTab(ttk.Frame):
         entry = ac.event_history[idx]
         if not messagebox.askyesno("Confirmar", f"Excluir entrada de atividade '{entry.name}'?"):
             return
+        self._sync_linked_absence(ac, "event", entry, False)
         ac.event_history.pop(idx)
+        self._show_acolyte_detail()
+        self.app.save()
+
+    def _toggle_event_missed(self):
+        if not self._current_acolyte:
+            return
+        sel = self._tree_events.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma entrada de atividade para marcar/desmarcar falta.")
+            return
+        idx = self._tree_events.index(sel[0])
+        ac = self._current_acolyte
+        if idx >= len(ac.event_history):
+            return
+        entry = ac.event_history[idx]
+        entry.missed = not entry.missed
+        self._sync_linked_absence(ac, "event", entry, entry.missed)
         self._show_acolyte_detail()
         self.app.save()
 
@@ -1037,7 +1155,13 @@ class AcolytesTab(ttk.Frame):
                 for batch in self.app.finalized_event_batches
                 for entry in batch.entries
             ]
-            generate_report(sorted_acs, path, finalized_entries)
+            generate_report(
+                sorted_acs,
+                path,
+                finalized_entries,
+                self.app.generated_schedules,
+                self.app.include_activity_table_per_acolyte,
+            )
             if messagebox.askyesno("Sucesso", f"Relatório gerado em:\n{path}\n\nDeseja abrir o arquivo?"):
                 self._open_file(path)
         except Exception as e:

@@ -1,7 +1,7 @@
 """Gerador de relatórios PDF para acólitos usando reportlab."""
 
 import os
-from typing import List
+from typing import Dict, List, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -13,10 +13,9 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
-    PageBreak,
 )
 
-from .models import Acolyte, FinalizedEventBatchEntry
+from .models import Acolyte, FinalizedEventBatchEntry, GeneratedSchedule
 
 
 def _sanitize_anchor(name: str) -> str:
@@ -48,10 +47,86 @@ def _build_table(data: list, col_widths: list) -> Table:
     return table
 
 
+def _first_name(full_name: str) -> str:
+    """Retorna o primeiro nome de um nome completo."""
+    cleaned = (full_name or "").strip()
+    if not cleaned:
+        return "-"
+    return cleaned.split()[0]
+
+
+def _compact_names(names: List[str], max_chars: int = 55) -> str:
+    """Compacta lista de nomes para evitar overflow visual na tabela."""
+    if not names:
+        return "-"
+    full_text = ", ".join(names)
+    if len(full_text) <= max_chars:
+        return full_text
+
+    shown = []
+    current_len = 0
+    for name in names:
+        add_len = len(name) + (2 if shown else 0)
+        if current_len + add_len > max_chars - 10:
+            break
+        shown.append(name)
+        current_len += add_len
+
+    remaining = len(names) - len(shown)
+    if not shown:
+        return f"{names[0]}... (+{len(names) - 1})"
+    if remaining > 0:
+        return f"{', '.join(shown)}... (+{remaining})"
+    return ", ".join(shown)
+
+
+def _generated_schedule_general_map(generated_schedule: GeneratedSchedule) -> Dict[Tuple[str, str, str, str], bool]:
+    """Infer which generated slots were general events from stored schedule text.
+
+    This preserves compatibility with older snapshots created before
+    `is_general_event` was added to `GeneratedScheduleSlotSnapshot`.
+    """
+    result: Dict[Tuple[str, str, str, str], bool] = {}
+    lines = [line.strip() for line in (generated_schedule.schedule_text or "").splitlines()]
+
+    current_key = None
+    current_description = ""
+    for line in lines:
+        if not line or line == "*ESCALA DA SEMANA*":
+            continue
+
+        if line.startswith("*") and line.endswith(":*"):
+            header = line.strip("*")[:-1]
+            day_part, remainder = header.split(", ", 1) if ", " in header else ("", header)
+            date_part, time_part = remainder.split(" - ", 1) if " - " in remainder else (remainder, "")
+            current_key = (date_part.strip(), day_part.strip(), time_part.strip(), "")
+            current_description = ""
+            continue
+
+        if line.startswith("_") and line.endswith("_") and current_key is not None:
+            current_description = line.strip("_")
+            continue
+
+        if current_key is not None:
+            key = (
+                current_key[0],
+                current_key[1],
+                current_key[2],
+                current_description,
+            )
+            result[key] = line == "*TODOS*"
+            current_key = None
+            current_description = ""
+
+    return result
+
+
 def generate_report(
     acolytes: List[Acolyte],
     output_path: str,
     registered_events: List[FinalizedEventBatchEntry] = None,
+    generated_schedules: List[GeneratedSchedule] = None,
+    include_activity_table_per_acolyte: bool = True,
 ) -> str:
     """
     Gera um relatório PDF com os dados de todos os acólitos.
@@ -60,6 +135,8 @@ def generate_report(
     """
     if registered_events is None:
         registered_events = []
+    if generated_schedules is None:
+        generated_schedules = []
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,
@@ -181,6 +258,90 @@ def generate_report(
     story.append(summary_table)
 
     # =====================================================================
+    # TABELA DE ESCALAS GERADAS: cards de todos os lotes gerados
+    # =====================================================================
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph("Escalas Geradas", style_section))
+    story.append(Spacer(1, 0.2 * cm))
+
+    if generated_schedules:
+        acolyte_name_map: Dict[str, str] = {a.id: a.name for a in acolytes}
+
+        schedule_header = [[
+            Paragraph("<b>Gerada em</b>", style_body),
+            Paragraph("<b>Data</b>", style_body),
+            Paragraph("<b>Dia</b>", style_body),
+            Paragraph("<b>Horário</b>", style_body),
+            Paragraph("<b>Descrição</b>", style_body),
+            Paragraph("<b>Participantes</b>", style_body),
+        ]]
+
+        schedule_rows = []
+        for generated_schedule in generated_schedules:
+            legacy_general_map = _generated_schedule_general_map(generated_schedule)
+            for slot in generated_schedule.slots:
+                key = (
+                    (slot.date or "").strip(),
+                    (slot.day or "").strip(),
+                    (slot.time or "").strip(),
+                    (slot.description or "").strip(),
+                )
+                is_general_event = getattr(slot, "is_general_event", False) or legacy_general_map.get(key, False)
+
+                if is_general_event:
+                    participants_text = "TODOS"
+                else:
+                    first_names = [
+                        _first_name(acolyte_name_map.get(aid, ""))
+                        for aid in slot.acolyte_ids
+                        if aid in acolyte_name_map
+                    ]
+                    participants_text = _compact_names(first_names)
+
+                desc = slot.description or ("Escala Geral" if is_general_event else "-")
+                schedule_rows.append([
+                    Paragraph(generated_schedule.generated_at or "-", style_body),
+                    Paragraph(slot.date or "-", style_body),
+                    Paragraph(slot.day or "-", style_body),
+                    Paragraph(slot.time or "-", style_body),
+                    Paragraph(desc, style_body),
+                    Paragraph(participants_text, style_body),
+                ])
+
+        schedule_table = Table(
+            schedule_header + schedule_rows,
+            colWidths=[
+                page_width * 0.18,
+                page_width * 0.12,
+                page_width * 0.18,
+                page_width * 0.10,
+                page_width * 0.17,
+                page_width * 0.25,
+            ],
+        )
+        schedule_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 9),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
+                    ("FONTSIZE", (0, 1), (-1, -1), 8),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(schedule_table)
+    else:
+        story.append(Paragraph("Nenhuma escala gerada encontrada.", style_body))
+
+    # =====================================================================
     # SEÇÃO DE ATIVIDADES: Tabela com todos os eventos registrados
     # =====================================================================
     story.append(Spacer(1, 0.5 * cm))
@@ -237,8 +398,11 @@ def generate_report(
     # =====================================================================
     # PÁGINAS INDIVIDUAIS: Detalhes de cada acólito
     # =====================================================================
-    for acolyte in acolytes:
-        story.append(PageBreak())
+    for idx, acolyte in enumerate(acolytes):
+        if idx > 0:
+            # Separate acolyte sections without forcing a new page.
+            story.append(Spacer(1, 0.7 * cm))
+            story.append(Spacer(1, 0.3 * cm))
 
         anchor = _sanitize_anchor(acolyte.name)
 
@@ -266,31 +430,32 @@ def generate_report(
         # --- Histórico de Escalas ---
         story.append(Paragraph("Histórico de Escalas", style_section))
         if acolyte.schedule_history:
-            header = [["Data", "Dia", "Horário", "Descrição"]]
+            header = [["Data", "Dia", "Horário", "Descrição", "Faltou"]]
             rows = [
-                [e.date, e.day, e.time, e.description or "-"]
+                [e.date, e.day, e.time, e.description or "-", "Sim" if e.missed else "Não"]
                 for e in acolyte.schedule_history
             ]
             table = _build_table(
                 header + rows,
-                [2.5 * cm, 3.5 * cm, 2.5 * cm, page_width - 8.5 * cm],
+                [2.2 * cm, 3.0 * cm, 2.2 * cm, page_width - 10.4 * cm, 2.0 * cm],
             )
             story.append(table)
         else:
             story.append(Paragraph("Nenhuma escala registrada.", style_body))
 
         # --- Atividades ---
-        story.append(Paragraph("Atividades", style_section))
-        if acolyte.event_history:
-            header = [["Nome da Atividade", "Data", "Horário"]]
-            rows = [[e.name, e.date, e.time or "-"] for e in acolyte.event_history]
-            table = _build_table(
-                header + rows,
-                [page_width - 6 * cm, 3 * cm, 3 * cm],
-            )
-            story.append(table)
-        else:
-            story.append(Paragraph("Nenhuma atividade registrada.", style_body))
+        if include_activity_table_per_acolyte:
+            story.append(Paragraph("Atividades", style_section))
+            if acolyte.event_history:
+                header = [["Nome da Atividade", "Data", "Horário", "Faltou"]]
+                rows = [[e.name, e.date, e.time or "-", "Sim" if e.missed else "Não"] for e in acolyte.event_history]
+                table = _build_table(
+                    header + rows,
+                    [page_width - 8 * cm, 2.5 * cm, 2.5 * cm, 3.0 * cm],
+                )
+                story.append(table)
+            else:
+                story.append(Paragraph("Nenhuma atividade registrada.", style_body))
 
         # --- Faltas ---
         story.append(Paragraph("Faltas", style_section))

@@ -24,7 +24,13 @@ from ..utils import (
     names_list_to_text,
 )
 from .widgets import DateEntryFrame, TimeEntryFrame
-from .dialogs import AddEscalaGeralDialog, StandardSlotsDialog, FinalizeScheduleDialog, GeneralEventUnavailabilityDialog
+from .dialogs import (
+    AddEscalaGeralDialog,
+    StandardSlotsDialog,
+    FinalizeScheduleDialog,
+    GeneralEventUnavailabilityDialog,
+    EditGeneralEventExcludedDialog,
+)
 
 
 def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
@@ -104,6 +110,13 @@ class ScheduleSlotCard(ttk.LabelFrame):
             command=self._add_selected_acolytes,
         ).pack(side=tk.LEFT)
 
+        if self.slot.is_general_event:
+            ttk.Button(
+                row4,
+                text="✏️ Editar Excluídos",
+                command=self._edit_general_event_excluded,
+            ).pack(side=tk.LEFT, padx=(6, 0))
+
     def _on_date_change(self, *_):
         date = self.date_var.get().strip()
         detected = detect_weekday(date)
@@ -130,6 +143,35 @@ class ScheduleSlotCard(ttk.LabelFrame):
         self.slot.time = self.time_var.get().strip()
         self.slot.description = self.desc_var.get().strip()
         self.slot.day = self.day_var.get()
+        # Check unavailability when editing date/time
+        self._check_unavailability_on_edit()
+
+    def _check_unavailability_on_edit(self):
+        """Check if any currently assigned acolytes are unavailable with the new date/time."""
+        if not self.slot.day or not self.slot.time or not self.slot.acolyte_ids:
+            return
+        
+        conflict_warnings = []
+        for aid in self.slot.acolyte_ids:
+            acolyte = self.app.find_acolyte(aid)
+            if acolyte and hasattr(acolyte, 'unavailabilities'):
+                for unav in acolyte.unavailabilities:
+                    if unav.day == self.slot.day and _time_in_interval(
+                        self.slot.time, unav.start_time, unav.end_time
+                    ):
+                        conflict_warnings.append(
+                            f"{acolyte.name}: indisponível às {self.slot.time} "
+                            f"({unav.start_time}–{unav.end_time})"
+                        )
+                        break
+        
+        if conflict_warnings:
+            messagebox.showwarning(
+                "Aviso de Indisponibilidade",
+                "Os seguintes acólitos têm indisponibilidade no novo horário:\n\n"
+                + "\n".join(conflict_warnings),
+                parent=self,
+            )
 
     def _remove_self(self):
         if self.slot in self.app.schedule_slots:
@@ -182,16 +224,123 @@ class ScheduleSlotCard(ttk.LabelFrame):
         self._refresh_acolytes()
         self.app.save()
 
+    def _edit_general_event_excluded(self):
+        if not self.slot.is_general_event:
+            return
+
+        include_suspended = getattr(self.app, "include_suspended_in_general_event", True)
+        suspended_locked_ids = []
+        if not include_suspended:
+            suspended_locked_ids = [ac.id for ac in self.app.acolytes if ac.is_suspended]
+
+        # Build current excluded ids from both sources.
+        current_excluded = set(self.slot.excluded_acolyte_ids)
+        current_excluded.update(self.slot.suspended_excluded_acolyte_ids)
+
+        dlg = EditGeneralEventExcludedDialog(
+            self.app.root,
+            self.app.acolytes,
+            list(current_excluded),
+            suspended_locked_ids=suspended_locked_ids,
+        )
+        if dlg.result is None:
+            return
+
+        selected_excluded = set(dlg.result)
+        suspended_set = set(suspended_locked_ids)
+
+        self.slot.suspended_excluded_acolyte_ids = sorted(suspended_set)
+        self.slot.excluded_acolyte_ids = sorted(selected_excluded - suspended_set)
+
+        # Recompute included acolytes for this general slot.
+        excluded_union = set(self.slot.excluded_acolyte_ids) | set(self.slot.suspended_excluded_acolyte_ids)
+        self.slot.acolyte_ids = [ac.id for ac in self.app.acolytes if ac.id not in excluded_union]
+
+        self._refresh_acolytes()
+        self.app.save()
+
+    def _is_acolyte_unavailable(self, acolyte_id: str) -> bool:
+        """Check if an acolyte is unavailable at this slot's day/time."""
+        if not self.slot.day or not self.slot.time:
+            return False
+        
+        acolyte = self.app.find_acolyte(acolyte_id)
+        if not acolyte or not hasattr(acolyte, 'unavailabilities'):
+            return False
+        
+        for unav in acolyte.unavailabilities:
+            if unav.day == self.slot.day and _time_in_interval(
+                self.slot.time, unav.start_time, unav.end_time
+            ):
+                return True
+        return False
+
+    def _format_excluded_indicator(self, entries: List[str], max_chars: int = 90) -> str:
+        """Format excluded names and truncate long text to avoid UI overflow."""
+        if not entries:
+            return ""
+
+        full_text = ", ".join(entries)
+        if len(full_text) <= max_chars:
+            return full_text
+
+        shown = []
+        current_len = 0
+        for name in entries:
+            add_len = len(name) + (2 if shown else 0)
+            # Keep room for trailing "... (+N)"
+            if current_len + add_len > max_chars - 12:
+                break
+            shown.append(name)
+            current_len += add_len
+
+        remaining = len(entries) - len(shown)
+        if not shown:
+            return f"{entries[0]}... (+{len(entries) - 1})"
+        if remaining > 0:
+            return f"{', '.join(shown)}... (+{remaining})"
+        return ", ".join(shown)
+
     def _refresh_acolytes(self):
         for widget in self.acolyte_frame.winfo_children():
             widget.destroy()
         self._acolyte_labels.clear()
 
         if self.slot.is_general_event:
+            row_frame = ttk.Frame(self.acolyte_frame)
+            row_frame.grid(row=0, column=0, sticky="w")
+            
             ttk.Label(
-                self.acolyte_frame, text="TODOS",
+                row_frame, text="TODOS",
                 font=("TkDefaultFont", 10, "bold"), foreground="blue"
-            ).grid(row=0, column=0, sticky="w")
+            ).pack(side=tk.LEFT)
+            
+            # Show excluded acolytes indicator (including suspended exclusions)
+            excluded_names = []
+            for eid in self.slot.excluded_acolyte_ids:
+                ac = self.app.find_acolyte(eid)
+                if ac:
+                    excluded_names.append(ac.name)
+
+            suspended_excluded_names = []
+            for eid in self.slot.suspended_excluded_acolyte_ids:
+                ac = self.app.find_acolyte(eid)
+                if ac:
+                    suspended_excluded_names.append(f"{ac.name} (susp.)")
+
+            all_excluded = excluded_names + suspended_excluded_names
+            if all_excluded:
+                formatted = self._format_excluded_indicator(all_excluded)
+                indicator_text = f"(excluído: {formatted})"
+                ttk.Label(
+                    self.acolyte_frame,
+                    text=indicator_text,
+                    font=("TkDefaultFont", 8),
+                    foreground="gray",
+                    justify=tk.LEFT,
+                    wraplength=340,
+                ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+            
             return
 
         if not self.slot.acolyte_ids:
@@ -204,9 +353,23 @@ class ScheduleSlotCard(ttk.LabelFrame):
         for i, aid in enumerate(self.slot.acolyte_ids):
             acolyte = self.app.find_acolyte(aid)
             name = acolyte.name if acolyte else f"(id:{aid[:6]})"
-            lbl_frame = ttk.Frame(self.acolyte_frame, relief="solid", padding=2)
+            
+            # Check if acolyte is unavailable at this time
+            is_unavailable = self._is_acolyte_unavailable(aid)
+            
+            # Use tk.Frame with light red background if unavailable, otherwise use ttk.Frame
+            if is_unavailable:
+                lbl_frame = tk.Frame(
+                    self.acolyte_frame, relief="solid", bd=1, bg="#FFCCCC", padx=2, pady=2
+                )
+                name_label = tk.Label(lbl_frame, text=name, font=("TkDefaultFont", 8), bg="#FFCCCC")
+            else:
+                lbl_frame = ttk.Frame(self.acolyte_frame, relief="solid", padding=2)
+                name_label = ttk.Label(lbl_frame, text=name, font=("TkDefaultFont", 8))
+            
             lbl_frame.grid(row=i // max_cols, column=i % max_cols, padx=2, pady=1, sticky="w")
-            ttk.Label(lbl_frame, text=name, font=("TkDefaultFont", 8)).pack(side=tk.LEFT)
+            
+            name_label.pack(side=tk.LEFT)
             btn = ttk.Button(
                 lbl_frame,
                 text="✕",
@@ -399,14 +562,23 @@ class ScheduleTab(ttk.Frame):
         if dlg.result:
             name, date, time, include_as_activity, include_as_schedule = dlg.result
 
-            all_acolyte_ids = [ac.id for ac in self.app.acolytes]
+            include_suspended = getattr(self.app, "include_suspended_in_general_event", True)
+            suspended_excluded_ids = [
+                ac.id for ac in self.app.acolytes
+                if ac.is_suspended and not include_suspended
+            ]
+            eligible_acolytes = [
+                ac for ac in self.app.acolytes
+                if include_suspended or not ac.is_suspended
+            ]
+            all_acolyte_ids = [ac.id for ac in eligible_acolytes]
             day = detect_weekday(date)
 
             # Check unavailabilities
             excluded_ids = set()
             if time and day:
                 conflicting = []
-                for ac in self.app.acolytes:
+                for ac in eligible_acolytes:
                     if hasattr(ac, 'unavailabilities'):
                         for unav in ac.unavailabilities:
                             if unav.day == day and _time_in_interval(time, unav.start_time, unav.end_time):
@@ -433,6 +605,8 @@ class ScheduleTab(ttk.Frame):
                 general_event_name=name,
                 include_as_activity=include_as_activity,
                 include_as_schedule=include_as_schedule,
+                excluded_acolyte_ids=list(excluded_ids),
+                suspended_excluded_acolyte_ids=suspended_excluded_ids,
             )
             self.app.schedule_slots.append(slot)
             card = ScheduleSlotCard(self.slots_frame, slot, self.app)
@@ -514,6 +688,7 @@ class ScheduleTab(ttk.Frame):
                 time=slot.time,
                 description=slot.description,
                 acolyte_ids=list(slot.acolyte_ids),
+                is_general_event=slot.is_general_event,
             )
             for slot in self.app.schedule_slots
         ]
