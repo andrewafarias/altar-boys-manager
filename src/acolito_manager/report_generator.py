@@ -429,7 +429,6 @@ def generate_report(
             f"<b>Faltas:</b> {acolyte.absence_count}",
             f"<b>Suspenso:</b> {suspension_text}",
             f"<b>Bônus:</b> {acolyte.bonus_count}",
-            f"<b>Data de Nascimento:</b> {acolyte.birthdate or 'Não informada'}",
         ]
         for line in status_lines:
             story.append(Paragraph(line, style_body))
