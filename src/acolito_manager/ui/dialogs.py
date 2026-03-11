@@ -1060,3 +1060,89 @@ class CloseCicloDialog(BaseDialog):
             return
         self.result = (label, self.reset_bonus_var.get())
         self.destroy()
+
+
+class BirthdaySettingsDialog(BaseDialog):
+    """Diálogo para configurar envio automático de feliz aniversário via WhatsApp Web."""
+
+    def __init__(self, parent, current_settings: dict):
+        self._settings = current_settings.copy()
+        super().__init__(parent, "Configurações de Aniversários")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="Configurações de Aniversário Automático",
+            font=("TkDefaultFont", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            frame,
+            text='Ao ativar, o sistema pode enviar automaticamente uma mensagem\n'
+                 'de "feliz aniversário" em um grupo do WhatsApp Web.',
+            foreground="gray",
+        ).pack(anchor="w", pady=(0, 8))
+
+        self.enabled_var = tk.BooleanVar(value=self._settings.get("enabled", False))
+        ttk.Checkbutton(
+            frame,
+            text="Ativar envio automático de feliz aniversário",
+            variable=self.enabled_var,
+        ).pack(anchor="w", pady=4)
+
+        sep = ttk.Separator(frame, orient=tk.HORIZONTAL)
+        sep.pack(fill=tk.X, pady=8)
+
+        ttk.Label(frame, text="Nome do grupo no WhatsApp Web:").pack(anchor="w", pady=(4, 0))
+        self.group_var = tk.StringVar(value=self._settings.get("whatsapp_group", ""))
+        ttk.Entry(frame, textvariable=self.group_var, width=40).pack(fill=tk.X, pady=4)
+
+        ttk.Label(frame, text="Mensagem de aniversário:").pack(anchor="w", pady=(4, 0))
+        ttk.Label(
+            frame,
+            text="Use {nome} para inserir o nome do acólito.",
+            foreground="gray",
+        ).pack(anchor="w")
+        self.message_text = tk.Text(frame, width=40, height=4, font=("TkDefaultFont", 10))
+        self.message_text.pack(fill=tk.X, pady=4)
+        self.message_text.insert(
+            "1.0",
+            self._settings.get("message_template", "Feliz aniversário, {nome}! 🎂🎉"),
+        )
+
+        ttk.Label(frame, text="Horário de envio (HH:MM):").pack(anchor="w", pady=(4, 0))
+        self.time_var = tk.StringVar(value=self._settings.get("send_time", "08:00"))
+        ttk.Entry(frame, textvariable=self.time_var, width=10).pack(anchor="w", pady=4)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Salvar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        send_time = self.time_var.get().strip()
+        if send_time:
+            try:
+                parts = send_time.split(":")
+                h, m = int(parts[0]), int(parts[1])
+                if not (0 <= h <= 23 and 0 <= m <= 59):
+                    raise ValueError
+            except (ValueError, IndexError):
+                messagebox.showwarning(
+                    "Aviso", "Horário inválido. Use o formato HH:MM.", parent=self
+                )
+                return
+
+        self.result = {
+            "enabled": self.enabled_var.get(),
+            "whatsapp_group": self.group_var.get().strip(),
+            "message_template": self.message_text.get("1.0", tk.END).strip(),
+            "send_time": send_time,
+        }
+        self.destroy()

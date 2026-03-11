@@ -112,6 +112,21 @@ class AcolytesTab(ttk.Frame):
         self.summary_label = ttk.Label(self.detail_frame, text="", foreground="#555")
         self.summary_label.pack(anchor="w", pady=2)
 
+        # Data de nascimento
+        bd_frame = ttk.Frame(self.detail_frame)
+        bd_frame.pack(anchor="w", pady=2)
+        ttk.Label(bd_frame, text="Nascimento:").pack(side=tk.LEFT)
+        self.birthdate_var = tk.StringVar()
+        from .widgets import DateEntryFrame
+        DateEntryFrame(
+            bd_frame, textvariable=self.birthdate_var, width=12, date_format="DD/MM/YYYY"
+        ).pack(side=tk.LEFT, padx=4)
+        ttk.Button(bd_frame, text="Salvar", command=self._save_birthdate, width=6).pack(
+            side=tk.LEFT, padx=2
+        )
+        self.birthdate_display = ttk.Label(bd_frame, text="", foreground="#555")
+        self.birthdate_display.pack(side=tk.LEFT, padx=6)
+
         # Seção de ações
         actions = ttk.Frame(self.detail_frame)
         actions.pack(fill=tk.X, pady=6)
@@ -379,6 +394,18 @@ class AcolytesTab(ttk.Frame):
                 f"Suspensões: {ac.suspension_count}  |  Bônus: {ac.bonus_count}"
             )
         )
+        # Birthdate
+        self.birthdate_var.set(ac.birthdate if ac.birthdate else "")
+        if ac.birthdate:
+            try:
+                bd = datetime.strptime(ac.birthdate, "%d/%m/%Y")
+                today = datetime.now()
+                age = today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
+                self.birthdate_display.config(text=f"({age} anos)")
+            except ValueError:
+                self.birthdate_display.config(text="")
+        else:
+            self.birthdate_display.config(text="")
         # Temporarily disconnect spinbox command
         old_command = self.bonus_spin.config('command')[-1]
         self.bonus_spin.config(command='')
@@ -475,6 +502,23 @@ class AcolytesTab(ttk.Frame):
         if linked_absence and linked_absence.is_symbolic:
             return "Sim (simbólica)"
         return "Sim"
+
+    def _save_birthdate(self):
+        ac = self._current_acolyte
+        if not ac:
+            return
+        bd = self.birthdate_var.get().strip()
+        if bd:
+            try:
+                datetime.strptime(bd, "%d/%m/%Y")
+            except ValueError:
+                messagebox.showwarning(
+                    "Aviso", "Data inválida. Use o formato DD/MM/AAAA.", parent=self.app.root
+                )
+                return
+        ac.birthdate = bd
+        self.app.save()
+        self._show_acolyte_detail()
 
     def _clear_linked_missed_flag(self, ac: Acolyte, absence: Absence):
         if absence.linked_entry_type == "schedule":
