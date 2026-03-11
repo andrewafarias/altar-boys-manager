@@ -19,6 +19,7 @@ from ..models import (
 from .schedule_tab import ScheduleTab
 from .acolytes_tab import AcolytesTab
 from .history_tab import HistoryTab
+from .calendar_tab import CalendarTab
 
 
 class App:
@@ -139,10 +140,12 @@ class App:
         self.events_tab = self.schedule_tab.events_tab
         self.acolytes_tab = AcolytesTab(self.notebook, self)
         self.history_tab = HistoryTab(self.notebook, self)
+        self.calendar_tab = CalendarTab(self.notebook, self)
 
         self.notebook.add(self.schedule_tab, text="📅 Criar Escala")
         self.notebook.add(self.acolytes_tab, text="👥 Acólitos")
         self.notebook.add(self.history_tab, text="📜 Histórico")
+        self.notebook.add(self.calendar_tab, text="📆 Calendário")
 
     def _load_data(self):
         result = load_data()
@@ -184,6 +187,7 @@ class App:
         self.acolytes_tab.sync_current_cycle_name()
         self.acolytes_tab.refresh_list()
         self.history_tab.refresh()
+        self.calendar_tab.refresh()
 
     def save(self):
         save_data(
