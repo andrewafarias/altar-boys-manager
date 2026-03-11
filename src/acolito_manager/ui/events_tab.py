@@ -12,6 +12,18 @@ from .widgets import DateEntryFrame, TimeEntryFrame
 from .dialogs import AddEventDialog, EditEventParticipantsDialog
 
 
+def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
+    """Returns True if time_str falls within [start_time, end_time)."""
+    try:
+        from datetime import datetime as _dt
+        t = _dt.strptime(time_str, "%H:%M").time()
+        s = _dt.strptime(start_time, "%H:%M").time()
+        e = _dt.strptime(end_time, "%H:%M").time()
+        return s <= t < e
+    except (ValueError, AttributeError):
+        return False
+
+
 class EventCard(ttk.LabelFrame):
     """Card inline para edição de uma atividade pendente."""
 
@@ -82,9 +94,39 @@ class EventCard(ttk.LabelFrame):
         self.event.name = self.name_var.get().strip()
         self.event.date = normalize_date(self.date_var.get().strip())
         self.event.time = self.time_var.get().strip()
+        self._check_unavailability_on_edit()
         self.app.save()
         # Check if ordering changed when date/time updates
         self.schedule_tab._check_and_refresh_if_ordering_changed()
+
+    def _check_unavailability_on_edit(self):
+        """Check if included acolytes are unavailable with the current date/time."""
+        day = detect_weekday(self.event.date)
+        time = self.event.time
+        if not day or not time:
+            return
+        included_ids = self._included_acolyte_ids()
+        if not included_ids:
+            return
+        conflict_warnings = []
+        for aid in included_ids:
+            acolyte = self.app.find_acolyte(aid)
+            if acolyte and hasattr(acolyte, 'unavailabilities'):
+                for unav in acolyte.unavailabilities:
+                    if unav.day == day and _time_in_interval(time, unav.start_time, unav.end_time):
+                        conflict_warnings.append(
+                            f"{acolyte.name}: indisponível às {time} "
+                            f"({unav.start_time}–{unav.end_time})"
+                        )
+                        break
+        if conflict_warnings:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "Aviso de Indisponibilidade",
+                "Os seguintes acólitos têm indisponibilidade no novo horário:\n\n"
+                + "\n".join(conflict_warnings),
+                parent=self,
+            )
 
     def _on_include_in_message_change(self, *_):
         self.event.include_in_message = bool(self.include_in_message_var.get())

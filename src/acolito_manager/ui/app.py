@@ -147,6 +147,14 @@ class App:
         self.notebook.add(self.history_tab, text="📜 Histórico")
         self.notebook.add(self.calendar_tab, text="📆 Calendário")
 
+        # Auto-refresh calendar when its tab is selected
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
+
+    def _on_main_tab_changed(self, _event=None):
+        selected = self.notebook.select()
+        if selected == str(self.calendar_tab):
+            self.calendar_tab.refresh()
+
     def _load_data(self):
         result = load_data()
         (

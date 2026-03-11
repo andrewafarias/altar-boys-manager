@@ -4,7 +4,7 @@ import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from ..models import (
     Acolyte,
@@ -503,10 +503,26 @@ class ScheduleTab(ttk.Frame):
         canvas.bind("<Configure>", on_configure)
 
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            if getattr(event, "num", None) == 4:
+                canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5:
+                canvas.yview_scroll(1, "units")
+            elif getattr(event, "delta", 0):
+                step = -1 if event.delta > 0 else 1
+                canvas.yview_scroll(step, "units")
 
-        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        def _bind_scroll(_evt=None):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel, add="+")
+            canvas.bind_all("<Button-4>", _on_mousewheel, add="+")
+            canvas.bind_all("<Button-5>", _on_mousewheel, add="+")
+
+        def _unbind_scroll(_evt=None):
+            canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+
+        canvas.bind("<Enter>", _bind_scroll)
+        canvas.bind("<Leave>", _unbind_scroll)
 
         self.canvas = canvas
 
@@ -628,35 +644,29 @@ class ScheduleTab(ttk.Frame):
             item.order_index = index
 
     def _check_and_refresh_if_ordering_changed(self):
-        """Check if date/time ordering would change. If so, refresh cards."""
+        """Reorder cards by date/time if order_message_by_date is enabled."""
         if not self.app.order_message_by_date:
             return
+        self._sort_cards_by_date_time()
+        self.refresh_cards()
 
-        def sort_key(item_type: str, item):
+    def _sort_cards_by_date_time(self):
+        """Reassign order_index to all cards based on date/time sorting."""
+        def sort_key(item):
             try:
                 date_obj = datetime.strptime(item.date, "%d/%m")
                 month_day = (date_obj.month, date_obj.day)
             except (ValueError, AttributeError):
                 month_day = (99, 99)
-
             normalized_time = (1, "99:99")
             if item.time:
                 normalized_time = (0, item.time)
             return month_day + normalized_time
 
-        # Get current sorted order by date/time
-        combined = [("slot", slot) for slot in self.app.schedule_slots]
-        combined.extend(("event", event) for event in self.app.general_events)
-        date_sorted = sorted(combined, key=lambda x: sort_key(x[0], x[1]))
-        date_sorted_ids = [item[1].id for item in date_sorted]
-
-        # Get current order_index sorted order
-        current_sorted = sorted(combined, key=lambda item: (getattr(item[1], "order_index", 0), item[1].id))
-        current_sorted_ids = [item[1].id for item in current_sorted]
-
-        # If they differ, refresh to show new date/time sorted order
-        if date_sorted_ids != current_sorted_ids:
-            self.refresh_cards()
+        combined = list(self.app.schedule_slots) + list(self.app.general_events)
+        combined.sort(key=sort_key)
+        for idx, item in enumerate(combined):
+            item.order_index = idx
 
     def refresh_cards(self):
         self._normalize_card_order()
@@ -668,7 +678,7 @@ class ScheduleTab(ttk.Frame):
                 card = ScheduleSlotCard(self.cards_frame, item, self.app, self)
             else:
                 card = self.events_tab.create_card(self.cards_frame, item)
-            card._card_meta = (kind, item.id)
+            setattr(card, "_card_meta", (kind, item.id))
             card.pack(fill=tk.X, padx=4, pady=4)
 
     def _bind_drag_to_widget(self, widget, item_type: str, item_id: str, card=None):
@@ -701,13 +711,8 @@ class ScheduleTab(ttk.Frame):
         widget.bind("<ButtonPress-1>", make_start_drag(card or widget))
 
     def _start_drag_event(self, card, item_type: str, item_id: str, event=None):
-        # Block drag and drop when order by date/time is enabled
+        # Block drag and drop when order by date/time is enabled (silently)
         if self.app.order_message_by_date:
-            messagebox.showwarning(
-                "Reordenação Bloqueada",
-                "Não é possível reordenar cards quando 'Ordenar mensagem por data' está ativado.\n\n"
-                "Desative a opção em Configurações para reordenar manualmente.",
-            )
             return
         self._drag_card = {"widget": card, "item_type": item_type, "item_id": item_id}
 
@@ -720,8 +725,8 @@ class ScheduleTab(ttk.Frame):
             return
 
         dragged_key = (self._drag_card["item_type"], self._drag_card["item_id"])
-        widgets = [widget for widget in self.cards_frame.winfo_children() if hasattr(widget, "_card_meta")]
-        ordered_keys = [widget._card_meta for widget in widgets]
+        widgets = [widget for widget in self.cards_frame.winfo_children() if getattr(widget, "_card_meta", None)]
+        ordered_keys: List[Tuple[str, str]] = [getattr(widget, "_card_meta") for widget in widgets]
 
         if dragged_key not in ordered_keys:
             self._drag_card = None
@@ -736,7 +741,7 @@ class ScheduleTab(ttk.Frame):
         drop_y = event.widget.winfo_pointery()
         insert_index = len(ordered_keys)
 
-        visible_widgets = [widget for widget in widgets if widget._card_meta != dragged_key]
+        visible_widgets = [widget for widget in widgets if getattr(widget, "_card_meta") != dragged_key]
         for index, widget in enumerate(visible_widgets):
             midpoint = widget.winfo_rooty() + (widget.winfo_height() / 2)
             if drop_y < midpoint:

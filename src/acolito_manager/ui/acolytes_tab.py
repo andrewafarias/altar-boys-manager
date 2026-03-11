@@ -342,6 +342,12 @@ class AcolytesTab(ttk.Frame):
                     self.acolyte_listbox.selection_set(i)
                     break
 
+    def _refresh_calendar_views(self):
+        cal_tab = getattr(self.app, "calendar_tab", None)
+        if cal_tab is None:
+            return
+        cal_tab.refresh_open_dialogs()
+
     def _on_acolyte_select(self, event=None):
         if hasattr(self, '_overview_frame') and self._overview_frame:
             self._overview_frame.destroy()
@@ -844,6 +850,7 @@ class AcolytesTab(ttk.Frame):
             self._current_acolyte.absences.append(absence)
             self._show_acolyte_detail()
             self.app.save()
+            self._refresh_calendar_views()
 
     def _edit_absence(self):
         if not self._current_acolyte:
@@ -864,6 +871,7 @@ class AcolytesTab(ttk.Frame):
             absence.is_symbolic = dlg.result["is_symbolic"]
             self._show_acolyte_detail()
             self.app.save()
+            self._refresh_calendar_views()
 
     def _delete_absence(self):
         if not self._current_acolyte:
@@ -884,6 +892,7 @@ class AcolytesTab(ttk.Frame):
         ac.absences.pop(idx)
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
 
     def _toggle_symbolic_absence(self):
         if not self._current_acolyte:
@@ -902,6 +911,7 @@ class AcolytesTab(ttk.Frame):
         messagebox.showinfo("Sucesso", f"Falta de {absence.date} agora é {status}")
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
     # --------------------------------------------------------------------- #
     #  Bonus
     # --------------------------------------------------------------------- #
@@ -1097,6 +1107,7 @@ class AcolytesTab(ttk.Frame):
             ac.times_scheduled -= 1
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
 
     def _toggle_schedule_missed(self):
         if not self._current_acolyte:
@@ -1113,6 +1124,7 @@ class AcolytesTab(ttk.Frame):
         self._toggle_linked_missed_state(ac, "schedule", entry)
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
 
     def _add_event_entry(self):
         """Add a new event history entry."""
@@ -1152,6 +1164,7 @@ class AcolytesTab(ttk.Frame):
         ac.event_history.pop(idx)
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
 
     def _toggle_event_missed(self):
         if not self._current_acolyte:
@@ -1168,6 +1181,7 @@ class AcolytesTab(ttk.Frame):
         self._toggle_linked_missed_state(ac, "event", entry)
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
 
     def _toggle_linked_missed_state(self, ac: Acolyte, entry_type: str, entry):
         entry_id = entry.event_id if entry_type == "event" else entry.schedule_id
@@ -1216,6 +1230,7 @@ class AcolytesTab(ttk.Frame):
             self._sync_linked_absence(ac, entry_type, entry, False)
             self._show_acolyte_detail()
             self.app.save()
+            self._refresh_calendar_views()
             return
 
         # If there is no linked absence yet, mark as missed first and create one.
@@ -1231,6 +1246,7 @@ class AcolytesTab(ttk.Frame):
         linked_absence.is_symbolic = True
         self._show_acolyte_detail()
         self.app.save()
+        self._refresh_calendar_views()
 
     def _toggle_schedule_symbolic_missed(self):
         self._toggle_symbolic_linked_absence("schedule")

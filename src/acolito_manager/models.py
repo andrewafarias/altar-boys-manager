@@ -250,6 +250,13 @@ class Acolyte:
 
 @dataclass
 class ScheduleSlot:
+    """Draft planning card created in 'Criar Escala'.
+
+    This is not a finalized/realized schedule occurrence yet. It must only be
+    used as planning input and should not be treated as attendance/absence
+    source outside the schedule creation workflow.
+    """
+
     date: str
     day: str
     time: str
@@ -302,6 +309,13 @@ class ScheduleSlot:
 
 @dataclass
 class GeneralEvent:
+    """Draft planning card created in 'Criar Escala'.
+
+    This is not a finalized/realized activity occurrence yet. It must only be
+    used as planning input and should not be treated as attendance/absence
+    source outside the schedule creation workflow.
+    """
+
     name: str
     date: str
     time: str = ""

@@ -92,55 +92,34 @@ class HistoryTab(ttk.Frame):
         self._merged_sched_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb2.config(command=self._merged_sched_text.yview)
 
-        ttk.Label(
-            self._merged_sched_section, text="Slots:", font=("TkDefaultFont", 10, "bold")
-        ).pack(anchor="w", pady=(6, 2))
-
-        slot_frame = ttk.Frame(self._merged_sched_section)
-        slot_frame.pack(fill=tk.X)
-        sb3 = ttk.Scrollbar(slot_frame, orient=tk.VERTICAL)
-        sb3.pack(side=tk.RIGHT, fill=tk.Y)
-        self._merged_sched_tree = ttk.Treeview(
-            slot_frame,
-            columns=("Data", "Dia", "Hora", "Descrição", "Acólitos"),
-            show="headings",
-            height=5,
-            yscrollcommand=sb3.set,
-        )
-        sb3.config(command=self._merged_sched_tree.yview)
-        for col, w in [("Data", 70), ("Dia", 100), ("Hora", 60), ("Descrição", 140), ("Acólitos", 180)]:
-            self._merged_sched_tree.heading(col, text=col)
-            self._merged_sched_tree.column(col, width=w, minwidth=40)
-        self._merged_sched_tree.pack(fill=tk.X, expand=False)
-
-        # --- Activities section ---
-        self._merged_ev_section = ttk.Frame(self._merged_detail_frame)
+        # --- Unified units table ---
+        self._merged_units_section = ttk.Frame(self._merged_detail_frame)
 
         ttk.Label(
-            self._merged_ev_section, text="Atividades:", font=("TkDefaultFont", 10, "bold")
+            self._merged_units_section, text="Unidades do Lote:", font=("TkDefaultFont", 10, "bold")
         ).pack(anchor="w", pady=(6, 2))
 
-        ev_frame = ttk.Frame(self._merged_ev_section)
-        ev_frame.pack(fill=tk.BOTH, expand=True)
-        sb4 = ttk.Scrollbar(ev_frame, orient=tk.VERTICAL)
-        sb4.pack(side=tk.RIGHT, fill=tk.Y)
-        self._merged_ev_tree = ttk.Treeview(
-            ev_frame,
-            columns=("Nome", "Data", "Hora", "Participantes"),
+        units_frame = ttk.Frame(self._merged_units_section)
+        units_frame.pack(fill=tk.BOTH, expand=True)
+        sb_units = ttk.Scrollbar(units_frame, orient=tk.VERTICAL)
+        sb_units.pack(side=tk.RIGHT, fill=tk.Y)
+        self._merged_units_tree = ttk.Treeview(
+            units_frame,
+            columns=("Tipo", "Nome", "Data", "Hora", "Acólitos"),
             show="headings",
-            height=5,
-            yscrollcommand=sb4.set,
+            height=8,
+            yscrollcommand=sb_units.set,
         )
-        sb4.config(command=self._merged_ev_tree.yview)
-        for col, w in [("Nome", 160), ("Data", 70), ("Hora", 60), ("Participantes", 200)]:
-            self._merged_ev_tree.heading(col, text=col)
-            self._merged_ev_tree.column(col, width=w, minwidth=40)
-        self._merged_ev_tree.pack(fill=tk.BOTH, expand=True)
+        sb_units.config(command=self._merged_units_tree.yview)
+        for col, w in [("Tipo", 100), ("Nome", 140), ("Data", 70), ("Hora", 60), ("Acólitos", 200)]:
+            self._merged_units_tree.heading(col, text=col)
+            self._merged_units_tree.column(col, width=w, minwidth=40)
+        self._merged_units_tree.pack(fill=tk.BOTH, expand=True)
 
-        ev_btn_frame = ttk.Frame(self._merged_ev_section)
-        ev_btn_frame.pack(fill=tk.X, pady=4)
+        units_btn_frame = ttk.Frame(self._merged_units_section)
+        units_btn_frame.pack(fill=tk.X, pady=4)
         ttk.Button(
-            ev_btn_frame, text="🗑️ Excluir Atividade Selecionada", command=self._delete_event_entry
+            units_btn_frame, text="🗑️ Excluir Unidade Selecionada", command=self._delete_unit_entry
         ).pack(side=tk.LEFT, padx=2)
 
     # --------------------------------------------------------------------- #
@@ -207,41 +186,48 @@ class HistoryTab(ttk.Frame):
         self._merged_detail_frame.pack(fill=tk.BOTH, expand=True)
 
         if gs is not None:
-            self._merged_sched_section.pack(fill=tk.BOTH, expand=True, before=self._merged_ev_section)
+            self._merged_sched_section.pack(fill=tk.BOTH, expand=True, before=self._merged_units_section)
             self._merged_sched_text.config(state=tk.NORMAL)
             self._merged_sched_text.delete("1.0", tk.END)
             self._merged_sched_text.insert(tk.END, gs.schedule_text)
             self._merged_sched_text.config(state=tk.DISABLED)
+        else:
+            self._merged_sched_section.pack_forget()
 
-            self._merged_sched_tree.delete(*self._merged_sched_tree.get_children())
+        # Populate unified units table
+        self._merged_units_section.pack(fill=tk.BOTH, expand=True)
+        self._merged_units_tree.delete(*self._merged_units_tree.get_children())
+        self._units_data = []  # store unit references for deletion
+
+        if gs is not None:
             for slot in gs.slots:
+                if slot.is_general_event:
+                    unit_type = "Escala Geral"
+                else:
+                    unit_type = "Escala"
                 names = []
                 for aid in slot.acolyte_ids:
                     ac = self.app.find_acolyte(aid)
                     if ac:
                         names.append(ac.name)
-                self._merged_sched_tree.insert(
+                self._merged_units_tree.insert(
                     "", tk.END,
-                    values=(slot.date, slot.day, slot.time, slot.description or "-", ", ".join(names) or "-")
+                    values=(unit_type, slot.description or "-", slot.date, slot.time or "-", ", ".join(names) or "-")
                 )
-        else:
-            self._merged_sched_section.pack_forget()
+                self._units_data.append({"kind": "schedule_slot", "slot": slot, "schedule": gs})
 
         if fb is not None:
-            self._merged_ev_section.pack(fill=tk.BOTH, expand=True)
-            self._merged_ev_tree.delete(*self._merged_ev_tree.get_children())
             for entry in fb.entries:
                 names = []
                 for aid in entry.participating_acolyte_ids:
                     ac = self.app.find_acolyte(aid)
                     if ac:
                         names.append(ac.name)
-                self._merged_ev_tree.insert(
+                self._merged_units_tree.insert(
                     "", tk.END,
-                    values=(entry.name, entry.date, entry.time or "-", ", ".join(names) or "-")
+                    values=("Atividade", entry.name, entry.date, entry.time or "-", ", ".join(names) or "-")
                 )
-        else:
-            self._merged_ev_section.pack_forget()
+                self._units_data.append({"kind": "event_entry", "entry": entry, "batch": fb})
 
     # --------------------------------------------------------------------- #
     #  Edit Schedule
@@ -370,46 +356,82 @@ class HistoryTab(ttk.Frame):
         self.app.schedule_tab.refresh_acolyte_list()
         messagebox.showinfo("Concluído", "Lote excluído e contagens revertidas.")
 
-    def _delete_event_entry(self):
-        """Delete a single event entry from the selected batch."""
+    def _delete_unit_entry(self):
+        """Delete a single unit (schedule slot or event entry) from the selected batch."""
         sel = self._merged_listbox.curselection()
         if not sel:
-            messagebox.showinfo("Aviso", "Selecione um lote de atividades.")
+            messagebox.showinfo("Aviso", "Selecione um lote.")
             return
         idx = sel[0]
         if idx >= len(self._merged_items):
             return
-        item = self._merged_items[idx]
-        fb = item["batch"]
-        if fb is None:
-            messagebox.showinfo("Aviso", "Este lote não possui atividades para excluir.")
-            return
 
-        tree_sel = self._merged_ev_tree.selection()
+        tree_sel = self._merged_units_tree.selection()
         if not tree_sel:
-            messagebox.showinfo("Aviso", "Selecione uma atividade para excluir.")
+            messagebox.showinfo("Aviso", "Selecione uma unidade para excluir.")
             return
-        entry_idx = self._merged_ev_tree.index(tree_sel[0])
-        if entry_idx >= len(fb.entries):
-            return
-
-        entry = fb.entries[entry_idx]
-        if not messagebox.askyesno(
-            "Confirmar",
-            f"Excluir a atividade '{entry.name}' de {entry.date}?\n\n"
-            "Isso removerá o registro de atividade dos {0} acólito(s) que participaram.".format(len(entry.participating_acolyte_ids)),
-        ):
+        unit_idx = self._merged_units_tree.index(tree_sel[0])
+        if unit_idx >= len(self._units_data):
             return
 
-        for ac in self.app.acolytes:
-            ac.event_history = [e for e in ac.event_history if e.event_id != entry.event_id]
+        unit_data = self._units_data[unit_idx]
 
-        fb.entries.pop(entry_idx)
+        if unit_data["kind"] == "schedule_slot":
+            slot = unit_data["slot"]
+            gs = unit_data["schedule"]
+            desc = slot.description or "Escala"
+            if not messagebox.askyesno(
+                "Confirmar",
+                f"Excluir a unidade '{desc}' de {slot.date}?\n\n"
+                "Isso reverterá as contagens dos acólitos envolvidos.",
+            ):
+                return
+
+            # Reverse acolyte changes for this slot
+            for aid in slot.acolyte_ids:
+                ac = self.app.find_acolyte(aid)
+                if ac:
+                    if ac.times_scheduled > 0:
+                        ac.times_scheduled -= 1
+                    ac.schedule_history = [
+                        e for e in ac.schedule_history if e.schedule_id != slot.slot_id
+                    ]
+
+            gs.slots.remove(slot)
+
+            # If no more slots and no linked batch, remove the schedule entirely
+            if not gs.slots:
+                item = self._merged_items[idx]
+                if item["batch"] is None:
+                    self.app.generated_schedules.remove(gs)
+
+        elif unit_data["kind"] == "event_entry":
+            entry = unit_data["entry"]
+            fb = unit_data["batch"]
+            if not messagebox.askyesno(
+                "Confirmar",
+                f"Excluir a atividade '{entry.name}' de {entry.date}?\n\n"
+                f"Isso removerá o registro de atividade dos {len(entry.participating_acolyte_ids)} acólito(s) participantes.",
+            ):
+                return
+
+            for ac in self.app.acolytes:
+                ac.event_history = [e for e in ac.event_history if e.event_id != entry.event_id]
+
+            fb.entries.remove(entry)
+
+            # If no more entries and no linked schedule, remove the batch
+            if not fb.entries:
+                item = self._merged_items[idx]
+                if item["schedule"] is None:
+                    self.app.finalized_event_batches.remove(fb)
 
         self.app.save()
+        self._refresh_merged_list()
         self._on_merged_select()
         self.app.acolytes_tab.refresh_list()
-        messagebox.showinfo("Concluído", "Atividade excluída do lote.")
+        self.app.schedule_tab.refresh_acolyte_list()
+        messagebox.showinfo("Concluído", "Unidade excluída do lote.")
 
     # --------------------------------------------------------------------- #
     #  Ciclo History
@@ -511,43 +533,52 @@ class HistoryTab(ttk.Frame):
         if not messagebox.askyesno(
             "Restaurar Ciclo",
             f"Deseja restaurar o ciclo '{ch.label}' ({ch.closed_at})?\n\n"
-            "O estado atual será salvo no histórico como um novo ciclo e "
-            "substituído pelo ciclo selecionado.",
+            "O estado atual será substituído pelo ciclo selecionado.",
         ):
             return
 
-        # Always ask user for the current cycle label, pre-filling with the existing name
-        import tkinter.simpledialog as sd
-        current_label = sd.askstring(
-            "Fechar Ciclo Atual",
-            "Informe um rótulo para o ciclo atual antes de restaurar:",
-            initialvalue=self.app.current_cycle_name.strip(),
-            parent=self.app.root,
+        # Ask if user wants to save the current state first
+        save_current = messagebox.askyesno(
+            "Salvar Estado Atual",
+            "Deseja salvar o estado atual no histórico antes de restaurar?",
         )
-        if current_label is None:
-            return
-        current_label = current_label.strip()
-        if not current_label:
-            current_label = f"Ciclo fechado em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
 
-        import uuid as _uuid
+        if save_current:
+            import tkinter.simpledialog as sd
+            current_label = sd.askstring(
+                "Fechar Ciclo Atual",
+                "Informe um rótulo para o ciclo atual antes de restaurar:",
+                initialvalue=self.app.current_cycle_name.strip(),
+                parent=self.app.root,
+            )
+            if current_label is None:
+                return
+            current_label = current_label.strip()
+            if not current_label:
+                current_label = f"Ciclo fechado em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+
+            import uuid as _uuid
+            from ..models import (
+                Acolyte, ScheduleSlot, GeneralEvent,
+                GeneratedSchedule, FinalizedEventBatch, CicloHistoryEntry,
+            )
+
+            current_entry = CicloHistoryEntry(
+                id=str(_uuid.uuid4()),
+                closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                label=current_label.strip(),
+                acolytes_snapshot=[a.to_dict() for a in self.app.acolytes],
+                schedule_slots_snapshot=[s.to_dict() for s in self.app.schedule_slots],
+                general_events_snapshot=[e.to_dict() for e in self.app.general_events],
+                generated_schedules_snapshot=[gs.to_dict() for gs in self.app.generated_schedules],
+                finalized_event_batches_snapshot=[fb.to_dict() for fb in self.app.finalized_event_batches],
+            )
+            self.app.ciclo_history.append(current_entry)
+
         from ..models import (
             Acolyte, ScheduleSlot, GeneralEvent,
-            GeneratedSchedule, FinalizedEventBatch, CicloHistoryEntry,
+            GeneratedSchedule, FinalizedEventBatch,
         )
-
-        # Save current state as a new ciclo history entry
-        current_entry = CicloHistoryEntry(
-            id=str(_uuid.uuid4()),
-            closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
-            label=current_label.strip(),
-            acolytes_snapshot=[a.to_dict() for a in self.app.acolytes],
-            schedule_slots_snapshot=[s.to_dict() for s in self.app.schedule_slots],
-            general_events_snapshot=[e.to_dict() for e in self.app.general_events],
-            generated_schedules_snapshot=[gs.to_dict() for gs in self.app.generated_schedules],
-            finalized_event_batches_snapshot=[fb.to_dict() for fb in self.app.finalized_event_batches],
-        )
-        self.app.ciclo_history.append(current_entry)
 
         # Restore the selected cycle
         self.app.acolytes = [Acolyte.from_dict(a) for a in ch.acolytes_snapshot]
@@ -565,8 +596,8 @@ class HistoryTab(ttk.Frame):
 
         messagebox.showinfo(
             "Concluído",
-            f"Estado restaurado para o ciclo '{ch.label}'.\n"
-            f"O ciclo anterior foi salvo como '{current_label.strip()}'."
+            f"Estado restaurado para o ciclo '{ch.label}'."
+            + (f"\nO ciclo anterior foi salvo." if save_current else "")
         )
 
     def _generate_ciclo_report(self):

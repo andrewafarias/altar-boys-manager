@@ -622,22 +622,38 @@ class AddEscalaGeralDialog(BaseDialog):
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
 
+        self._updating_fields = False
+
         ttk.Label(frame, text="Nome da escala geral:").grid(row=0, column=0, sticky="w", pady=4)
         self.name_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.name_var, width=30).grid(
             row=0, column=1, padx=8, pady=4
         )
 
-        ttk.Label(frame, text="Data (DD/MM):").grid(row=1, column=0, sticky="w", pady=4)
-        self.date_var = tk.StringVar()
+        ttk.Label(frame, text="Dia da semana:").grid(row=1, column=0, sticky="w", pady=4)
+        self.day_var = tk.StringVar(value=WEEKDAYS_PT[datetime.now().weekday()])
+        self.day_combo = ttk.Combobox(
+            frame,
+            textvariable=self.day_var,
+            values=WEEKDAYS_PT,
+            width=20,
+            state="readonly",
+        )
+        self.day_combo.grid(row=1, column=1, padx=8, pady=4, sticky="w")
+
+        ttk.Label(frame, text="Data (DD/MM):").grid(row=2, column=0, sticky="w", pady=4)
+        self.date_var = tk.StringVar(value=next_occurrence_of_day(self.day_var.get()))
         DateEntryFrame(frame, textvariable=self.date_var, width=8, date_format="DD/MM").grid(
-            row=1, column=1, padx=8, pady=4, sticky="w"
+            row=2, column=1, padx=8, pady=4, sticky="w"
         )
 
-        ttk.Label(frame, text="Horário (opcional, HH:MM):").grid(row=2, column=0, sticky="w", pady=4)
+        self.day_var.trace_add("write", self._on_day_change)
+        self.date_var.trace_add("write", self._on_date_change)
+
+        ttk.Label(frame, text="Horário (opcional, HH:MM):").grid(row=3, column=0, sticky="w", pady=4)
         self.time_var = tk.StringVar()
         TimeEntryFrame(frame, textvariable=self.time_var, width=10).grid(
-            row=2, column=1, padx=8, pady=4, sticky="w"
+            row=3, column=1, padx=8, pady=4, sticky="w"
         )
 
         self.include_as_activity_var = tk.BooleanVar(
@@ -645,21 +661,49 @@ class AddEscalaGeralDialog(BaseDialog):
         )
         ttk.Checkbutton(
             frame, text="Incluir como atividade", variable=self.include_as_activity_var
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=4)
 
         self.include_as_schedule_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             frame, text="Incluir como escala", variable=self.include_as_schedule_var
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=4)
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=4)
 
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
         ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _on_day_change(self, *_):
+        if self._updating_fields:
+            return
+        day = self.day_var.get().strip()
+        if not day:
+            return
+        date_for_day = next_occurrence_of_day(day)
+        if not date_for_day:
+            return
+        self._updating_fields = True
+        self.date_var.set(date_for_day)
+        self._updating_fields = False
+
+    def _on_date_change(self, *_):
+        if self._updating_fields:
+            return
+        date = normalize_date(self.date_var.get().strip())
+        if not date:
+            return
+        weekday = detect_weekday(date)
+        if not weekday or weekday == self.day_var.get():
+            return
+        self._updating_fields = True
+        self.day_var.set(weekday)
+        self._updating_fields = False
 
     def _ok(self):
         name = self.name_var.get().strip()
         date = normalize_date(self.date_var.get().strip())
+        if not date and self.day_var.get().strip():
+            date = next_occurrence_of_day(self.day_var.get().strip())
         time = self.time_var.get().strip()
         if not name:
             messagebox.showwarning("Aviso", "Informe o nome da escala geral.", parent=self)
@@ -903,6 +947,9 @@ class StandardSlotsDialog(BaseDialog):
                 )
                 self.app.schedule_slots.append(slot)
                 added_schedule_items += 1
+        # Sort cards by date/time if ordering is enabled
+        if self.app.order_message_by_date:
+            self.app.schedule_tab._sort_cards_by_date_time()
         self.app.schedule_tab.load_slots_from_data()
         self.app.events_tab.refresh_list()
         self.app.save()
