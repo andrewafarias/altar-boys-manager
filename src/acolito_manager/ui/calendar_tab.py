@@ -114,13 +114,15 @@ class DayDetailDialog(tk.Toplevel):
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self._inner = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=self._inner, anchor="nw")
+        self._canvas_win_id = canvas.create_window((0, 0), window=self._inner, anchor="nw")
 
         def _on_configure(_evt):
             canvas.configure(scrollregion=canvas.bbox("all"))
         self._inner.bind("<Configure>", _on_configure)
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(
-            canvas.find_withtag("all")[0], width=e.width) if canvas.find_withtag("all") else None)
+
+        def _on_canvas_resize(event):
+            canvas.itemconfigure(self._canvas_win_id, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_resize)
 
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -337,15 +339,8 @@ class DayDetailDialog(tk.Toplevel):
 
         first = True
         for unit_id, entry_type in units:
-            if symbolic and not first:
-                is_sym = True
-            else:
-                is_sym = False if not symbolic else False
-            # For "1 real + rest symbolic": first gets real, rest symbolic
-            if symbolic:
-                is_sym = not first  # first=False means symbolic=True
-            else:
-                is_sym = False
+            # "1 real + rest symbolic": first unit is real, remainder symbolic
+            is_sym = (symbolic and not first)
 
             absence = Absence(
                 date=date_str,
@@ -780,7 +775,8 @@ class CalendarTab(ttk.Frame):
         day_infos = self._get_day_infos_for_month(self._view_year, self._view_month)
 
         today = datetime.now().date()
-        today_day = today.day if today.month == self._view_month and today.year == self._view_year else -1
+        is_current_month = (today.month == self._view_month and today.year == self._view_year)
+        today_day = today.day if is_current_month else None
 
         # Day headers
         for col, name in enumerate(_DAY_HEADERS):
