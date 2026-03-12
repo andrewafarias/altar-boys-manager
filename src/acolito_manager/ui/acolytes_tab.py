@@ -17,6 +17,7 @@ from ..models import (
     ScheduleHistoryEntry,
     EventHistoryEntry,
     Unavailability,
+    TemporaryUnavailability,
     CicloHistoryEntry,
 )
 from ..utils import today_str, is_currently_suspended
@@ -32,6 +33,8 @@ from .dialogs import (
     EditBonusMovementDialog,
     AddMultipleAcolytesDialog,
     AddUnavailabilityDialog,
+    AddTemporaryUnavailabilityDialog,
+    EditUnavailabilityDialog,
     CloseCicloDialog,
 )
 
@@ -119,9 +122,8 @@ class AcolytesTab(ttk.Frame):
         bd_frame.pack(anchor="w", pady=2)
         ttk.Label(bd_frame, text="Nascimento:").pack(side=tk.LEFT)
         self.birthdate_var = tk.StringVar()
-        from .widgets import DateEntryFrame
-        DateEntryFrame(
-            bd_frame, textvariable=self.birthdate_var, width=12, date_format="DD/MM/YYYY"
+        ttk.Entry(
+            bd_frame, textvariable=self.birthdate_var, width=12
         ).pack(side=tk.LEFT, padx=4)
         ttk.Button(bd_frame, text="Salvar", command=self._save_birthdate, width=6).pack(
             side=tk.LEFT, padx=2
@@ -272,14 +274,17 @@ class AcolytesTab(ttk.Frame):
         ).pack(side=tk.LEFT, padx=2)
 
         # Indisponibilidades tab
+        self._unav_items: list = []  # [("regular"|"temporary", obj), ...]
         self._tree_unavailabilities = self._make_tree(
             self._tab_unavailabilities,
-            ("Dia", "Hora Início", "Hora Fim"),
-            (160, 90, 90)
+            ("Tipo", "Dia", "Hora Início", "Hora Fim"),
+            (90, 175, 90, 90)
         )
         unav_btn_frame = ttk.Frame(self._tab_unavailabilities)
         unav_btn_frame.pack(fill=tk.X, pady=2)
         ttk.Button(unav_btn_frame, text="➕ Adicionar", command=self._add_unavailability).pack(side=tk.LEFT, padx=2)
+        ttk.Button(unav_btn_frame, text="➕ Temporária", command=self._add_temp_unavailability).pack(side=tk.LEFT, padx=2)
+        ttk.Button(unav_btn_frame, text="✏️ Editar", command=self._edit_unavailability).pack(side=tk.LEFT, padx=2)
         ttk.Button(unav_btn_frame, text="🗑️ Excluir", command=self._delete_unavailability).pack(side=tk.LEFT, padx=2)
 
     def _make_tree(self, parent, columns, widths) -> ttk.Treeview:
@@ -515,10 +520,25 @@ class AcolytesTab(ttk.Frame):
             ("Ganho" if b.type == "earn" else "Usado", str(b.amount), b.description or "-", b.date)
             for b in ac.bonus_movements
         ])
-        self._refresh_tree(self._tree_unavailabilities, [
-            (u.day, u.start_time, u.end_time)
-            for u in getattr(ac, 'unavailabilities', [])
-        ])
+        self._unav_items = [
+            ("regular", u) for u in getattr(ac, 'unavailabilities', [])
+        ] + [
+            ("temporary", t) for t in getattr(ac, 'temporary_unavailabilities', [])
+        ]
+        unav_rows = []
+        for kind, u in self._unav_items:
+            if kind == "regular":
+                st = u.start_time if u.start_time else "Dia todo"
+                et = u.end_time if u.end_time else "Dia todo"
+                unav_rows.append(("Semanal", u.day, st, et))
+            else:
+                sd = self._to_short_date(u.start_date)
+                ed = self._to_short_date(u.end_date)
+                day_label = f"{sd} – {ed}"
+                st = u.start_time if u.start_time else "Dia todo"
+                et = u.end_time if u.end_time else "Dia todo"
+                unav_rows.append(("Temporária", day_label, st, et))
+        self._refresh_tree(self._tree_unavailabilities, unav_rows)
 
     def _refresh_tree(self, tree: ttk.Treeview, rows: list):
         tree.delete(*tree.get_children())
@@ -1277,6 +1297,55 @@ class AcolytesTab(ttk.Frame):
             self._show_acolyte_detail()
             self.app.save()
 
+    def _add_temp_unavailability(self):
+        if not self._current_acolyte:
+            return
+        dlg = AddTemporaryUnavailabilityDialog(self.app.root)
+        if dlg.result:
+            start_date, end_date, start_time, end_time = dlg.result
+            temp = TemporaryUnavailability(
+                id=str(uuid.uuid4()),
+                start_date=start_date,
+                end_date=end_date,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            ac = self._current_acolyte
+            if not hasattr(ac, 'temporary_unavailabilities') or ac.temporary_unavailabilities is None:
+                ac.temporary_unavailabilities = []
+            ac.temporary_unavailabilities.append(temp)
+            self._show_acolyte_detail()
+            self.app.save()
+
+    def _edit_unavailability(self):
+        if not self._current_acolyte:
+            return
+        sel = self._tree_unavailabilities.selection()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione uma indisponibilidade para editar.")
+            return
+        idx = self._tree_unavailabilities.index(sel[0])
+        if idx >= len(self._unav_items):
+            return
+        kind, item = self._unav_items[idx]
+        dlg = EditUnavailabilityDialog(self.app.root, item)
+        if not dlg.result:
+            return
+        ac = self._current_acolyte
+        if kind == "regular" and dlg.result[0] == "regular":
+            _, day, start_time, end_time = dlg.result
+            item.day = day
+            item.start_time = start_time
+            item.end_time = end_time
+        elif kind == "temporary" and dlg.result[0] == "temporary":
+            _, start_date, end_date, start_time, end_time = dlg.result
+            item.start_date = start_date
+            item.end_date = end_date
+            item.start_time = start_time
+            item.end_time = end_time
+        self._show_acolyte_detail()
+        self.app.save()
+
     def _delete_unavailability(self):
         if not self._current_acolyte:
             return
@@ -1285,17 +1354,25 @@ class AcolytesTab(ttk.Frame):
             messagebox.showinfo("Aviso", "Selecione uma indisponibilidade para excluir.")
             return
         idx = self._tree_unavailabilities.index(sel[0])
-        ac = self._current_acolyte
-        unavs = getattr(ac, 'unavailabilities', [])
-        if idx >= len(unavs):
+        if idx >= len(self._unav_items):
             return
-        unav = unavs[idx]
+        kind, item = self._unav_items[idx]
+        ac = self._current_acolyte
+        if kind == "regular":
+            desc = f"{item.day} ({item.start_time}–{item.end_time})"
+            target_list = ac.unavailabilities
+        else:
+            sd = self._to_short_date(item.start_date)
+            ed = self._to_short_date(item.end_date)
+            time_part = f" – {item.start_time}–{item.end_time}" if item.start_time else ""
+            desc = f"{sd} – {ed}{time_part}"
+            target_list = ac.temporary_unavailabilities
         if not messagebox.askyesno(
             "Confirmar",
-            f"Excluir indisponibilidade de {unav.day} ({unav.start_time}–{unav.end_time})?"
+            f"Excluir indisponibilidade: {desc}?"
         ):
             return
-        unavs.pop(idx)
+        target_list.remove(item)
         self._show_acolyte_detail()
         self.app.save()
 
@@ -1414,37 +1491,32 @@ class AcolytesTab(ttk.Frame):
         dlg = CloseCicloDialog(self.app.root, initial_label=self.app.current_cycle_name)
         if not dlg.result:
             return
-        label, reset_bonus = dlg.result
+        result = dlg.result
 
-        # Save snapshot of current state
-        import uuid as _uuid
-        entry = CicloHistoryEntry(
-            id=str(_uuid.uuid4()),
-            closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
-            label=label,
-            acolytes_snapshot=[a.to_dict() for a in self.app.acolytes],
-            schedule_slots_snapshot=[s.to_dict() for s in self.app.schedule_slots],
-            general_events_snapshot=[e.to_dict() for e in self.app.general_events],
-            generated_schedules_snapshot=[gs.to_dict() for gs in self.app.generated_schedules],
-            finalized_event_batches_snapshot=[fb.to_dict() for fb in self.app.finalized_event_batches],
-        )
-        self.app.ciclo_history.append(entry)
+        if result["save_history"]:
+            self.app.ciclo_history.append(
+                self.app.build_current_cycle_history_entry(result["label"])
+            )
 
-        # Reset absences, escalas, atividades (and optionally bonuses)
         for ac in self.app.acolytes:
-            ac.absences.clear()
-            ac.times_scheduled = 0
-            ac.schedule_history.clear()
-            ac.event_history.clear()
-            if reset_bonus:
+            if not result["keep_absences"]:
+                ac.absences.clear()
+            if not result["keep_schedule_data"]:
+                ac.times_scheduled = 0
+                ac.schedule_history.clear()
+            if not result["keep_event_history"]:
+                ac.event_history.clear()
+            if not result["keep_bonus"]:
                 ac.bonus_count = 0
                 ac.bonus_movements.clear()
 
-        # Clear app-level escala/atividade data
-        self.app.generated_schedules.clear()
-        self.app.finalized_event_batches.clear()
-        self.app.schedule_slots.clear()
-        self.app.general_events.clear()
+        if not result["keep_finalized_history"]:
+            self.app.generated_schedules.clear()
+            self.app.finalized_event_batches.clear()
+        if not result["keep_draft_cards"]:
+            self.app.schedule_slots.clear()
+            self.app.general_events.clear()
+
         self.app.current_cycle_name = ""
         self.sync_current_cycle_name()
 
@@ -1456,7 +1528,18 @@ class AcolytesTab(ttk.Frame):
         self.app.schedule_tab.refresh_acolyte_list()
         self.app.events_tab.refresh_list()
         self.app.history_tab.refresh()
-        messagebox.showinfo("Concluído", f"Ciclo '{label}' fechado e salvo no histórico!")
+        self.app.calendar_tab.refresh()
+
+        if result["save_history"]:
+            messagebox.showinfo(
+                "Concluído",
+                f"Ciclo '{result['label']}' fechado e salvo no histórico!",
+            )
+        else:
+            messagebox.showinfo(
+                "Concluído",
+                "Ciclo atual fechado sem salvar no histórico.",
+            )
 
     def _generate_report(self):
         if not self.app.acolytes:

@@ -32,6 +32,36 @@ class Unavailability:
         )
 
 
+@dataclass
+class TemporaryUnavailability:
+    """Indisponibilidade temporária por intervalo de datas (não recorrente)."""
+
+    start_date: str  # DD/MM/YYYY
+    end_date: str    # DD/MM/YYYY
+    start_time: str = ""  # HH:MM or "" (dia todo)
+    end_time: str = ""    # HH:MM or "" (dia todo)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TemporaryUnavailability":
+        return cls(
+            id=data["id"],
+            start_date=data["start_date"],
+            end_date=data["end_date"],
+            start_time=data.get("start_time", ""),
+            end_time=data.get("end_time", ""),
+        )
+
+
 
 @dataclass
 class Absence:
@@ -195,6 +225,7 @@ class Acolyte:
     schedule_history: List[ScheduleHistoryEntry] = field(default_factory=list)
     event_history: List[EventHistoryEntry] = field(default_factory=list)
     unavailabilities: List[Unavailability] = field(default_factory=list)
+    temporary_unavailabilities: List[TemporaryUnavailability] = field(default_factory=list)
     birthdate: str = ""  # DD/MM/YYYY
 
 
@@ -226,6 +257,7 @@ class Acolyte:
             "schedule_history": [sh.to_dict() for sh in self.schedule_history],
             "event_history": [eh.to_dict() for eh in self.event_history],
             "unavailabilities": [u.to_dict() for u in self.unavailabilities],
+            "temporary_unavailabilities": [t.to_dict() for t in self.temporary_unavailabilities],
             "birthdate": self.birthdate,
         }
 
@@ -244,6 +276,10 @@ class Acolyte:
             schedule_history=[ScheduleHistoryEntry.from_dict(sh) for sh in data.get("schedule_history", [])],
             event_history=[EventHistoryEntry.from_dict(eh) for eh in data.get("event_history", [])],
             unavailabilities=[Unavailability.from_dict(u) for u in data.get("unavailabilities", [])],
+            temporary_unavailabilities=[
+                TemporaryUnavailability.from_dict(t)
+                for t in data.get("temporary_unavailabilities", [])
+            ],
             birthdate=data.get("birthdate", ""),
         )
 
@@ -268,7 +304,6 @@ class ScheduleSlot:
     include_as_schedule: bool = True
     excluded_acolyte_ids: List[str] = field(default_factory=list)
     suspended_excluded_acolyte_ids: List[str] = field(default_factory=list)
-    order_index: int = 0
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
@@ -285,7 +320,6 @@ class ScheduleSlot:
             "include_as_schedule": self.include_as_schedule,
             "excluded_acolyte_ids": self.excluded_acolyte_ids,
             "suspended_excluded_acolyte_ids": self.suspended_excluded_acolyte_ids,
-            "order_index": self.order_index,
         }
 
     @classmethod
@@ -303,7 +337,6 @@ class ScheduleSlot:
             include_as_schedule=data.get("include_as_schedule", True),
             excluded_acolyte_ids=data.get("excluded_acolyte_ids", []),
             suspended_excluded_acolyte_ids=data.get("suspended_excluded_acolyte_ids", []),
-            order_index=data.get("order_index", 0),
         )
 
 
@@ -321,7 +354,6 @@ class GeneralEvent:
     time: str = ""
     include_in_message: bool = False
     excluded_acolyte_ids: List[str] = field(default_factory=list)
-    order_index: int = 0
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_dict(self) -> dict:
@@ -332,7 +364,6 @@ class GeneralEvent:
             "time": self.time,
             "include_in_message": self.include_in_message,
             "excluded_acolyte_ids": self.excluded_acolyte_ids,
-            "order_index": self.order_index,
         }
 
     @classmethod
@@ -344,7 +375,6 @@ class GeneralEvent:
             time=data.get("time", ""),
             include_in_message=data.get("include_in_message", False),
             excluded_acolyte_ids=data.get("excluded_acolyte_ids", []),
-            order_index=data.get("order_index", 0),
         )
 
 

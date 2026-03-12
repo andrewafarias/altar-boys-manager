@@ -61,6 +61,28 @@ def _birthdate_matches_day(birthdate_str: str, day: int, month: int) -> bool:
         return False
 
 
+def _date_time_sort_key(date_str: str, time_str: str):
+    """Sort key by date/time with empty or invalid time at the end of day."""
+    parsed_date = _parse_date(date_str)
+    if parsed_date is None:
+        date_key = (9999, 12, 31)
+    else:
+        date_key = (parsed_date.year, parsed_date.month, parsed_date.day)
+
+    time_text = (time_str or "").strip()
+    time_rank = 1
+    time_key = (99, 99)
+    if time_text:
+        try:
+            parsed_time = datetime.strptime(time_text, "%H:%M")
+            time_rank = 0
+            time_key = (parsed_time.hour, parsed_time.minute)
+        except ValueError:
+            pass
+
+    return date_key, time_rank, time_key
+
+
 # ---------------------------------------------------------------------------
 # Data structures for calendar entries
 # ---------------------------------------------------------------------------
@@ -148,14 +170,33 @@ class DayDetailDialog(tk.Toplevel):
             canvas.itemconfigure(self._canvas_win_id, width=event.width)
         canvas.bind("<Configure>", _on_canvas_resize)
 
-        # Cross-platform mousewheel scrolling
+        # Cross-platform smooth mousewheel scrolling
+        def _scroll_by_pixels(pixel_delta: float):
+            scrollregion = canvas.bbox("all")
+            if not scrollregion:
+                return
+
+            total_height = scrollregion[3] - scrollregion[1]
+            viewport_height = canvas.winfo_height()
+            movable = total_height - viewport_height
+            if movable <= 0:
+                return
+
+            start, _end = canvas.yview()
+            new_start = start + (pixel_delta / movable)
+            if new_start < 0.0:
+                new_start = 0.0
+            elif new_start > 1.0:
+                new_start = 1.0
+            canvas.yview_moveto(new_start)
+
         def _on_mousewheel(event):
             if event.num == 4:
-                canvas.yview_scroll(-3, "units")
+                _scroll_by_pixels(-20)
             elif event.num == 5:
-                canvas.yview_scroll(3, "units")
+                _scroll_by_pixels(20)
             elif event.delta:
-                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                _scroll_by_pixels(-event.delta / 6)
 
         def _bind_scroll(_evt=None):
             canvas.bind_all("<Button-4>", _on_mousewheel, add="+")
@@ -192,21 +233,63 @@ class DayDetailDialog(tk.Toplevel):
             for ac in self.day_info.birthdays:
                 ttk.Label(lf, text=f"• {ac.name}").pack(anchor="w")
 
-        # -- Per-unit sections -----------------------------------------------
+        # -- Per-unit sections (ordered by date/time, no time last) ----------
+        ordered_units = []
+
         for slot in self.day_info.schedule_slots:
-            self._build_unit_section(slot, is_schedule=True, allow_absence=False)
+            ordered_units.append((
+                slot.date,
+                slot.time,
+                0,
+                "planning",
+                True,
+                slot,
+            ))
 
         for evt in self.day_info.general_events:
-            self._build_unit_section(evt, is_schedule=False, allow_absence=False)
+            ordered_units.append((
+                evt.date,
+                evt.time,
+                1,
+                "planning",
+                False,
+                evt,
+            ))
 
-        # History entries
         for h_slot in self.day_info.history_slots:
             snap = h_slot["snapshot"]
-            self._build_history_unit_section(snap, is_schedule=True)
+            ordered_units.append((
+                snap.date,
+                snap.time,
+                0,
+                "history",
+                True,
+                snap,
+            ))
 
         for h_evt in self.day_info.history_events:
             entry = h_evt["entry"]
-            self._build_history_unit_section(entry, is_schedule=False)
+            ordered_units.append((
+                entry.date,
+                entry.time,
+                1,
+                "history",
+                False,
+                entry,
+            ))
+
+        ordered_units.sort(
+            key=lambda item: (
+                *_date_time_sort_key(item[0], item[1]),
+                item[2],
+            )
+        )
+
+        for _date, _time, _type_rank, source_kind, is_schedule, unit in ordered_units:
+            if source_kind == "planning":
+                self._build_unit_section(unit, is_schedule=is_schedule, allow_absence=False)
+            else:
+                self._build_history_unit_section(unit, is_schedule=is_schedule)
 
         # -- Close button ----------------------------------------------------
         ttk.Button(self._inner, text="Fechar", command=self.destroy).pack(pady=8)
@@ -245,6 +328,20 @@ class DayDetailDialog(tk.Toplevel):
         for ac in self._quick_ac_sorted:
             self._quick_ac_listbox.insert(tk.END, ac.name)
 
+        # Cache finalized units per acolyte for fast quick actions.
+        self._quick_units_by_acolyte = {}
+        for ac in self._quick_ac_sorted:
+            units = []
+            for h_slot in self.day_info.history_slots:
+                snap = h_slot["snapshot"]
+                if ac.id in snap.acolyte_ids:
+                    units.append((snap.slot_id, "schedule"))
+            for h_evt in self.day_info.history_events:
+                entry = h_evt["entry"]
+                if ac.id in entry.participating_acolyte_ids:
+                    units.append((entry.event_id, "event"))
+            self._quick_units_by_acolyte[ac.id] = list(dict.fromkeys(units))
+
         btn_frame = ttk.Frame(right)
         btn_frame.pack(fill=tk.X, pady=4)
         ttk.Button(
@@ -254,6 +351,10 @@ class DayDetailDialog(tk.Toplevel):
         ttk.Button(
             btn_frame, text="1 real + resto simbólica",
             command=lambda: self._quick_absence_all(symbolic=True),
+        ).pack(fill=tk.X, pady=1)
+        ttk.Button(
+            btn_frame, text="Tudo presente",
+            command=self._quick_mark_all_present,
         ).pack(fill=tk.X, pady=1)
 
         if not self._quick_ac_sorted:
@@ -670,9 +771,8 @@ class DayDetailDialog(tk.Toplevel):
         self._refresh_all_row_actions()
 
     def _quick_absence_all(self, *, symbolic: bool):
-        sel_indices = self._quick_ac_listbox.curselection()
-        selected_names = [self._quick_ac_sorted[i].name for i in sel_indices]
-        if not selected_names:
+        selected_acolytes = self._get_selected_quick_acolytes()
+        if not selected_acolytes:
             messagebox.showwarning("Aviso", "Selecione pelo menos um acólito.", parent=self)
             return
 
@@ -680,35 +780,14 @@ class DayDetailDialog(tk.Toplevel):
         total_absences = 0
         updated_ids = set()
 
-        for name in selected_names:
-            acolyte = next((ac for ac in self.app.acolytes if ac.name == name), None)
-            if acolyte is None:
-                continue
-
-            units = []  # (unit_id, entry_type)
-            for h_slot in self.day_info.history_slots:
-                snap = h_slot["snapshot"]
-                if acolyte.id in snap.acolyte_ids:
-                    units.append((snap.slot_id, "schedule"))
-            for h_evt in self.day_info.history_events:
-                entry = h_evt["entry"]
-                if acolyte.id in entry.participating_acolyte_ids:
-                    units.append((entry.event_id, "event"))
+        for acolyte in selected_acolytes:
+            units = self._quick_units_by_acolyte.get(acolyte.id, [])  # (unit_id, entry_type)
 
             if not units:
                 continue
 
-            unique_units = []
-            seen = set()
-            for uid, et in units:
-                key = (uid, et)
-                if key in seen:
-                    continue
-                seen.add(key)
-                unique_units.append((uid, et))
-
             first = True
-            for unit_id, entry_type in unique_units:
+            for unit_id, entry_type in units:
                 is_sym = (symbolic and not first)
                 self._upsert_linked_absence(
                     acolyte,
@@ -727,10 +806,93 @@ class DayDetailDialog(tk.Toplevel):
         mode = "1 real + resto simbólica" if symbolic else "todas reais"
         messagebox.showinfo(
             "Faltas Registradas",
-            f"{total_absences} falta(s) registrada(s) para {len(selected_names)} acólito(s) ({mode}).",
+            f"{total_absences} falta(s) registrada(s) para {len(selected_acolytes)} acólito(s) ({mode}).",
             parent=self,
         )
-        self._refresh_all_row_actions()
+        self._refresh_quick_rows_for_acolytes(updated_ids, date_str)
+
+    def _quick_mark_all_present(self):
+        selected_acolytes = self._get_selected_quick_acolytes()
+        if not selected_acolytes:
+            messagebox.showwarning("Aviso", "Selecione pelo menos um acólito.", parent=self)
+            return
+
+        date_str = _format_date(self.day_info.date_obj)
+        total_removed = 0
+        updated_ids = set()
+
+        for acolyte in selected_acolytes:
+            units = self._quick_units_by_acolyte.get(acolyte.id, [])  # (unit_id, entry_type)
+
+            if not units:
+                continue
+
+            unique_units = set(units)
+            kept_absences = []
+            removed_for_acolyte = []
+            for absence in acolyte.absences:
+                key = (absence.linked_entry_id, absence.linked_entry_type)
+                is_target_absence = (
+                    absence.date == date_str
+                    and key in unique_units
+                    and absence.linked_entry_type in {"schedule", "event"}
+                )
+                if is_target_absence:
+                    removed_for_acolyte.append(absence)
+                else:
+                    kept_absences.append(absence)
+
+            if not removed_for_acolyte:
+                continue
+
+            acolyte.absences = kept_absences
+            for absence in removed_for_acolyte:
+                if absence.linked_entry_type and absence.linked_entry_id:
+                    self._set_linked_missed_flag(
+                        acolyte,
+                        absence.linked_entry_type,
+                        absence.linked_entry_id,
+                        False,
+                    )
+
+            total_removed += len(removed_for_acolyte)
+            updated_ids.add(acolyte.id)
+
+        if total_removed == 0:
+            messagebox.showinfo(
+                "Tudo presente",
+                "Nenhuma falta vinculada às unidades do dia foi encontrada para os acólitos selecionados.",
+                parent=self,
+            )
+            return
+
+        self.app.save()
+        self._refresh_acolyte_table_if_needed(updated_ids)
+        messagebox.showinfo(
+            "Tudo presente",
+            f"{total_removed} falta(s) removida(s) para {len(selected_acolytes)} acólito(s).",
+            parent=self,
+        )
+        self._refresh_quick_rows_for_acolytes(updated_ids, date_str)
+
+    def _get_selected_quick_acolytes(self) -> List[Acolyte]:
+        sel_indices = self._quick_ac_listbox.curselection()
+        result = []
+        for idx in sel_indices:
+            if 0 <= idx < len(self._quick_ac_sorted):
+                result.append(self._quick_ac_sorted[idx])
+        return result
+
+    def _refresh_quick_rows_for_acolytes(self, acolyte_ids: set, date_str: str):
+        if not acolyte_ids:
+            return
+        acolytes_by_id = {ac.id: ac for ac in self.app.acolytes}
+        for ac_id in acolyte_ids:
+            acolyte = acolytes_by_id.get(ac_id)
+            if acolyte is None:
+                continue
+            for unit_id, entry_type in self._quick_units_by_acolyte.get(ac_id, []):
+                self._refresh_row_actions(acolyte, unit_id, entry_type, date_str)
 
     def _rebuild(self):
         """Destroy and rebuild dialog contents, preserving scroll position."""
@@ -1130,7 +1292,7 @@ class CalendarTab(ttk.Frame):
 
         # -- Timeline view ---------------------------------------------------
         tl_frame = ttk.Frame(self._notebook)
-        self._notebook.add(tl_frame, text="📜 Linha do Tempo")
+        self._notebook.add(tl_frame, text="🕒 Linha do Tempo")
 
         # Scrollable timeline
         tl_scroll = ttk.Frame(tl_frame)

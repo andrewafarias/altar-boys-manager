@@ -40,10 +40,6 @@ class EventCard(ttk.LabelFrame):
         row1 = ttk.Frame(self)
         row1.pack(fill=tk.X, pady=2)
 
-        # Bind drag events to the card and its frames
-        self.schedule_tab._bind_drag_to_widget(self, "event", self.event.id)
-        self.schedule_tab._bind_drag_to_widget(row1, "event", self.event.id, card=self)
-
         ttk.Label(row1, text="Nome:").pack(side=tk.LEFT)
         self.name_var = tk.StringVar(value=self.event.name)
         self.name_var.trace_add("write", self._on_field_change)
@@ -73,9 +69,6 @@ class EventCard(ttk.LabelFrame):
         self.summary_var = tk.StringVar()
         ttk.Label(row2, textvariable=self.summary_var, foreground="#1f4f7a").pack(side=tk.LEFT, padx=10)
 
-        # Bind drag to row2
-        self.schedule_tab._bind_drag_to_widget(row2, "event", self.event.id, card=self)
-
     def _included_acolyte_ids(self):
         excluded = set(self.event.excluded_acolyte_ids)
         return [ac.id for ac in self.app.acolytes if ac.id not in excluded]
@@ -96,8 +89,7 @@ class EventCard(ttk.LabelFrame):
         self.event.time = self.time_var.get().strip()
         self._check_unavailability_on_edit()
         self.app.save()
-        # Check if ordering changed when date/time updates
-        self.schedule_tab._check_and_refresh_if_ordering_changed()
+        self.schedule_tab.maybe_refresh_cards_after_datetime_change()
 
     def _check_unavailability_on_edit(self):
         """Check if included acolytes are unavailable with the current date/time."""
@@ -167,7 +159,6 @@ class EventsTab:
                 name=name,
                 date=date,
                 time=time,
-                order_index=self.schedule_tab.next_card_order_index(),
             )
             self.app.general_events.append(ev)
             self.schedule_tab.refresh_cards()
@@ -215,7 +206,6 @@ class EventsTab:
                     time=ev.time,
                     include_in_message=ev.include_in_message,
                     excluded_acolyte_ids=list(ev.excluded_acolyte_ids),
-                    order_index=ev.order_index,
                 )
             )
 

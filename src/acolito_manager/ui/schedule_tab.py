@@ -4,7 +4,7 @@ import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from ..models import (
     Acolyte,
@@ -46,6 +46,42 @@ def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
         return False
 
 
+def _sort_key_date_time(date_str: str, time_str: str):
+    """Sort by date/time, keeping items without time at the end of their day."""
+    date_text = (date_str or "").strip()
+    time_text = (time_str or "").strip()
+
+    date_rank = 1
+    date_value = (9999, 12, 31)
+    if date_text:
+        parts = date_text.split("/")
+        try:
+            if len(parts) == 2:
+                day, month = int(parts[0]), int(parts[1])
+                year = datetime.now().year
+                date_rank = 0
+                date_value = (year, month, day)
+            elif len(parts) == 3:
+                day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+                date_rank = 0
+                date_value = (year, month, day)
+        except (ValueError, TypeError):
+            pass
+
+    # Items with empty/invalid time go after valid times for the same date.
+    time_rank = 1
+    time_value = 24 * 60
+    if time_text:
+        try:
+            parsed_time = datetime.strptime(time_text, "%H:%M")
+            time_rank = 0
+            time_value = parsed_time.hour * 60 + parsed_time.minute
+        except ValueError:
+            pass
+
+    return date_rank, date_value, time_rank, time_value
+
+
 class ScheduleSlotCard(ttk.LabelFrame):
     """Widget que representa um horário de escala."""
 
@@ -69,10 +105,6 @@ class ScheduleSlotCard(ttk.LabelFrame):
 
         row1 = ttk.Frame(self)
         row1.pack(fill=tk.X, pady=2)
-
-        # Bind drag events to the card and its frames
-        self.schedule_tab._bind_drag_to_widget(self, "slot", self.slot.id)
-        self.schedule_tab._bind_drag_to_widget(row1, "slot", self.slot.id, card=self)
 
         ttk.Label(row1, text="Data:").pack(side=tk.LEFT)
         self.date_var = tk.StringVar(value=self.slot.date)
@@ -125,11 +157,6 @@ class ScheduleSlotCard(ttk.LabelFrame):
                 command=self._edit_general_event_excluded,
             ).pack(side=tk.LEFT, padx=(6, 0))
 
-        # Bind drag to all rows
-        self.schedule_tab._bind_drag_to_widget(row2, "slot", self.slot.id, card=self)
-        self.schedule_tab._bind_drag_to_widget(self.acolyte_frame, "slot", self.slot.id, card=self)
-        self.schedule_tab._bind_drag_to_widget(row4, "slot", self.slot.id, card=self)
-
     def _on_date_change(self, *_):
         date = self.date_var.get().strip()
         detected = detect_weekday(date)
@@ -139,8 +166,6 @@ class ScheduleSlotCard(ttk.LabelFrame):
             self.day_var.set(detected)
             self._day_trace_id = self.day_var.trace_add("write", self._on_day_change)
         self._on_field_change()
-        # Check if ordering changed when date/time updates
-        self.schedule_tab._check_and_refresh_if_ordering_changed()
 
     def _on_day_change(self, *_):
         day = self.day_var.get().strip()
@@ -161,8 +186,7 @@ class ScheduleSlotCard(ttk.LabelFrame):
         # Check unavailability when editing date/time
         self._check_unavailability_on_edit()
         self.app.save()
-        # Check if ordering changed when date/time updates
-        self.schedule_tab._check_and_refresh_if_ordering_changed()
+        self.schedule_tab.maybe_refresh_cards_after_datetime_change()
 
     def _check_unavailability_on_edit(self):
         """Check if any currently assigned acolytes are unavailable with the new date/time."""
@@ -437,7 +461,7 @@ class ScheduleTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self._drag_card = None
+        self._rendered_card_order: List[str] = []
         self._build()
 
     def _build(self):
@@ -493,7 +517,6 @@ class ScheduleTab(ttk.Frame):
         self.cards_frame.pack(fill=tk.X, expand=True)
 
         self.events_tab = EventsTab(self.app, self)
-        self.bind_all("<ButtonRelease-1>", self._finish_drag, add="+")
 
         def on_configure(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
@@ -626,141 +649,51 @@ class ScheduleTab(ttk.Frame):
                 result.append(cache[idx])
         return result
 
-    def next_card_order_index(self) -> int:
-        max_order = -1
-        for item in self.app.schedule_slots:
-            max_order = max(max_order, getattr(item, "order_index", 0))
-        for item in self.app.general_events:
-            max_order = max(max_order, getattr(item, "order_index", 0))
-        return max_order + 1
-
-    def _ordered_card_items(self):
-        combined = [("slot", slot) for slot in self.app.schedule_slots]
-        combined.extend(("event", event) for event in self.app.general_events)
-        return sorted(combined, key=lambda item: (getattr(item[1], "order_index", 0), item[1].id))
-
-    def _normalize_card_order(self):
-        for index, (_, item) in enumerate(self._ordered_card_items()):
-            item.order_index = index
-
-    def _check_and_refresh_if_ordering_changed(self):
-        """Reorder cards by date/time if order_message_by_date is enabled."""
-        if not self.app.order_message_by_date:
-            return
-        self._sort_cards_by_date_time()
-        self.refresh_cards()
-
-    def _sort_cards_by_date_time(self):
-        """Reassign order_index to all cards based on date/time sorting."""
-        def sort_key(item):
-            try:
-                date_obj = datetime.strptime(item.date, "%d/%m")
-                month_day = (date_obj.month, date_obj.day)
-            except (ValueError, AttributeError):
-                month_day = (99, 99)
-            normalized_time = (1, "99:99")
-            if item.time:
-                normalized_time = (0, item.time)
-            return month_day + normalized_time
-
-        combined = list(self.app.schedule_slots) + list(self.app.general_events)
-        combined.sort(key=sort_key)
-        for idx, item in enumerate(combined):
-            item.order_index = idx
-
     def refresh_cards(self):
-        self._normalize_card_order()
+        sorted_cards = self._sorted_card_items()
         for widget in self.cards_frame.winfo_children():
             widget.destroy()
 
-        for kind, item in self._ordered_card_items():
-            if kind == "slot":
+        rendered_order: List[str] = []
+        for item_type, item in sorted_cards:
+            if item_type == "slot":
                 card = ScheduleSlotCard(self.cards_frame, item, self.app, self)
             else:
                 card = self.events_tab.create_card(self.cards_frame, item)
-            setattr(card, "_card_meta", (kind, item.id))
             card.pack(fill=tk.X, padx=4, pady=4)
+            rendered_order.append(self._card_token(item_type, item.id))
 
-    def _bind_drag_to_widget(self, widget, item_type: str, item_id: str, card=None):
-        """Bind drag-and-drop events to a widget."""
-        # Store reference to the card widget (parent if this is a child frame)
-        if card is None:
-            card = widget if isinstance(widget, ScheduleSlotCard) else None
-        if not card:
-            # If widget is a frame, find its parent card
-            parent = widget.master
-            while parent and not isinstance(parent, ScheduleSlotCard):
-                # Also check for EventCard
-                if hasattr(parent, 'event'):
-                    card = parent
-                    break
-                # Check for ScheduleSlotCard
-                if hasattr(parent, 'slot'):
-                    card = parent
-                    break
-                parent = parent.master
-        
-        if not card and hasattr(widget, 'slot'):
-            card = widget
-        elif not card and hasattr(widget, 'event'):
-            card = widget
-            
-        def make_start_drag(w):
-            return lambda event: self._start_drag_event(w, item_type, item_id, event)
-        
-        widget.bind("<ButtonPress-1>", make_start_drag(card or widget))
+        self._rendered_card_order = rendered_order
 
-    def _start_drag_event(self, card, item_type: str, item_id: str, event=None):
-        # Block drag and drop when order by date/time is enabled (silently)
-        if self.app.order_message_by_date:
-            return
-        self._drag_card = {"widget": card, "item_type": item_type, "item_id": item_id}
+    def _card_token(self, item_type: str, item_id: str) -> str:
+        return f"{item_type}:{item_id}"
 
-    def _start_drag(self, card, item_type: str, item_id: str, event=None):
-        # Deprecated: keeping for backwards compatibility
-        self._start_drag_event(card, item_type, item_id, event)
+    def _sorted_card_items(self):
+        merged_items = []
+        for idx, slot in enumerate(self.app.schedule_slots):
+            merged_items.append(("slot", slot, idx))
 
-    def _finish_drag(self, event):
-        if not self._drag_card:
-            return
+        event_offset = len(merged_items)
+        for idx, event in enumerate(self.app.general_events):
+            merged_items.append(("event", event, event_offset + idx))
 
-        dragged_key = (self._drag_card["item_type"], self._drag_card["item_id"])
-        widgets = [widget for widget in self.cards_frame.winfo_children() if getattr(widget, "_card_meta", None)]
-        ordered_keys: List[Tuple[str, str]] = [getattr(widget, "_card_meta") for widget in widgets]
+        merged_items.sort(
+            key=lambda entry: (
+                *_sort_key_date_time(entry[1].date, entry[1].time),
+                entry[2],
+            )
+        )
+        return [(item_type, item) for item_type, item, _ in merged_items]
 
-        if dragged_key not in ordered_keys:
-            self._drag_card = None
-            return
+    def maybe_refresh_cards_after_datetime_change(self):
+        sorted_cards = self._sorted_card_items()
+        expected_order = [
+            self._card_token(item_type, item.id)
+            for item_type, item in sorted_cards
+        ]
 
-        # Save original order indices
-        lookup = {("slot", slot.id): slot for slot in self.app.schedule_slots}
-        lookup.update({("event", ev.id): ev for ev in self.app.general_events})
-        original_order = {key: lookup[key].order_index for key in ordered_keys if key in lookup}
-
-        ordered_keys = [key for key in ordered_keys if key != dragged_key]
-        drop_y = event.widget.winfo_pointery()
-        insert_index = len(ordered_keys)
-
-        visible_widgets = [widget for widget in widgets if getattr(widget, "_card_meta") != dragged_key]
-        for index, widget in enumerate(visible_widgets):
-            midpoint = widget.winfo_rooty() + (widget.winfo_height() / 2)
-            if drop_y < midpoint:
-                insert_index = index
-                break
-
-        ordered_keys.insert(insert_index, dragged_key)
-
-        # Update order indices
-        for index, key in enumerate(ordered_keys):
-            lookup[key].order_index = index
-
-        # Check if ordering actually changed
-        ordering_changed = any(lookup[key].order_index != original_order.get(key, index) for index, key in enumerate(ordered_keys))
-
-        self._drag_card = None
-        if ordering_changed:
+        if expected_order != self._rendered_card_order:
             self.refresh_cards()
-            self.app.save()
 
     def _add_slot(self):
         slot = ScheduleSlot(
@@ -768,7 +701,6 @@ class ScheduleTab(ttk.Frame):
             date="",
             day="",
             time="",
-            order_index=self.next_card_order_index(),
         )
         self.app.schedule_slots.append(slot)
         self.refresh_cards()
@@ -827,7 +759,6 @@ class ScheduleTab(ttk.Frame):
                 include_as_schedule=include_as_schedule,
                 excluded_acolyte_ids=list(excluded_ids),
                 suspended_excluded_acolyte_ids=suspended_excluded_ids,
-                order_index=self.next_card_order_index(),
             )
             self.app.schedule_slots.append(slot)
             self.refresh_cards()
@@ -875,18 +806,6 @@ class ScheduleTab(ttk.Frame):
         general_event_slots = []
         message_items = []
 
-        def sort_key(date_str: str, time_str: str):
-            try:
-                date_obj = datetime.strptime(date_str, "%d/%m")
-                month_day = (date_obj.month, date_obj.day)
-            except ValueError:
-                month_day = (99, 99)
-
-            normalized_time = (1, "99:99")
-            if time_str:
-                normalized_time = (0, time_str)
-            return month_day + normalized_time
-
         for slot in self.app.schedule_slots:
             if slot.is_general_event:
                 general_event_slots.append(slot)
@@ -923,10 +842,6 @@ class ScheduleTab(ttk.Frame):
                     "detail": None,
                 }
             )
-
-        # Apply sorting only if order_message_by_date is enabled
-        if self.app.order_message_by_date:
-            message_items = sorted(message_items, key=lambda current: sort_key(current["date"], current["time"]))
 
         for item in message_items:
             header = f"*{item['day']}, {item['date']}"

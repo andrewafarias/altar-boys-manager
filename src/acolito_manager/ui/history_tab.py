@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..models import ScheduleSlot, Acolyte, CicloHistoryEntry
 from ..report_generator import generate_report
+from .dialogs import CloseCicloDialog
 
 
 class HistoryTab(ttk.Frame):
@@ -25,7 +26,7 @@ class HistoryTab(ttk.Frame):
 
         self._merged_frame = ttk.Frame(nb)
         self._ciclo_frame = ttk.Frame(nb)
-        nb.add(self._merged_frame, text="📅 Escalas e Atividades")
+        nb.add(self._merged_frame, text="📚 Escalas e Atividades")
         nb.add(self._ciclo_frame, text="🔄 Histórico de Ciclos")
 
         self._build_merged_history()
@@ -530,50 +531,31 @@ class HistoryTab(ttk.Frame):
         if idx >= len(self.app.ciclo_history):
             return
         ch = self.app.ciclo_history[idx]
+        pre_restore = CloseCicloDialog(
+            self.app.root,
+            initial_label=self.app.current_cycle_name,
+            title_text="Restaurar Ciclo",
+            action_text="Continuar",
+            show_retention_options=False,
+            info_title="Antes de restaurar o ciclo selecionado:",
+        )
+        if not pre_restore.result:
+            return
+
+        save_current = pre_restore.result["save_history"]
+        if save_current:
+            self.app.ciclo_history.append(
+                self.app.build_current_cycle_history_entry(pre_restore.result["label"])
+            )
+
         if not messagebox.askyesno(
-            "Restaurar Ciclo",
+            "Confirmar Restauração",
             f"Deseja restaurar o ciclo '{ch.label}' ({ch.closed_at})?\n\n"
             "O estado atual será substituído pelo ciclo selecionado.",
         ):
+            if save_current:
+                self.app.ciclo_history.pop()
             return
-
-        # Ask if user wants to save the current state first
-        save_current = messagebox.askyesno(
-            "Salvar Estado Atual",
-            "Deseja salvar o estado atual no histórico antes de restaurar?",
-        )
-
-        if save_current:
-            import tkinter.simpledialog as sd
-            current_label = sd.askstring(
-                "Fechar Ciclo Atual",
-                "Informe um rótulo para o ciclo atual antes de restaurar:",
-                initialvalue=self.app.current_cycle_name.strip(),
-                parent=self.app.root,
-            )
-            if current_label is None:
-                return
-            current_label = current_label.strip()
-            if not current_label:
-                current_label = f"Ciclo fechado em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-
-            import uuid as _uuid
-            from ..models import (
-                Acolyte, ScheduleSlot, GeneralEvent,
-                GeneratedSchedule, FinalizedEventBatch, CicloHistoryEntry,
-            )
-
-            current_entry = CicloHistoryEntry(
-                id=str(_uuid.uuid4()),
-                closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
-                label=current_label.strip(),
-                acolytes_snapshot=[a.to_dict() for a in self.app.acolytes],
-                schedule_slots_snapshot=[s.to_dict() for s in self.app.schedule_slots],
-                general_events_snapshot=[e.to_dict() for e in self.app.general_events],
-                generated_schedules_snapshot=[gs.to_dict() for gs in self.app.generated_schedules],
-                finalized_event_batches_snapshot=[fb.to_dict() for fb in self.app.finalized_event_batches],
-            )
-            self.app.ciclo_history.append(current_entry)
 
         from ..models import (
             Acolyte, ScheduleSlot, GeneralEvent,
@@ -591,8 +573,10 @@ class HistoryTab(ttk.Frame):
         self.app.schedule_tab.refresh_acolyte_list()
         self.app.schedule_tab.load_slots_from_data()
         self.app.events_tab.refresh_list()
+        self.app.acolytes_tab.sync_current_cycle_name()
         self.app.acolytes_tab.refresh_list()
         self.refresh()
+        self.app.calendar_tab.refresh()
 
         messagebox.showinfo(
             "Concluído",

@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..data_manager import save_data, load_data, export_to_file, import_from_file
 from ..utils import get_birthday_acolytes_this_week, detect_weekday
@@ -38,12 +38,12 @@ class App:
         self.include_activity_table_per_acolyte: bool = True
         self.auto_lift_suspensions_on_end_date: bool = False
         self.current_cycle_name: str = ""
-        self.order_message_by_date: bool = True
         self.birthday_settings: dict = {
             "enabled": False,
             "whatsapp_group": "",
             "message_template": "Feliz aniversário, {nome}! 🎂🎉",
             "send_time": "08:00",
+            "muted_birthdate_notifications": [],
         }
 
         self.root = tk.Tk()
@@ -111,20 +111,6 @@ class App:
             variable=self._auto_lift_suspensions_var,
             command=self._on_toggle_auto_lift_suspensions,
         )
-        self._order_message_by_date_var = tk.BooleanVar(
-            value=self.order_message_by_date
-        )
-        settings_menu.add_checkbutton(
-            label="Ordenar mensagem por data",
-            variable=self._order_message_by_date_var,
-            command=self._on_toggle_order_message_by_date,
-        )
-        settings_menu.add_separator()
-        settings_menu.add_command(
-            label="Aniversários... (temporariamente desativado)",
-            command=self._open_birthday_settings,
-            state=tk.DISABLED,
-        )
 
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Ajuda", menu=help_menu)
@@ -142,10 +128,10 @@ class App:
         self.history_tab = HistoryTab(self.notebook, self)
         self.calendar_tab = CalendarTab(self.notebook, self)
 
-        self.notebook.add(self.schedule_tab, text="📅 Criar Escala")
+        self.notebook.add(self.schedule_tab, text="🛠️ Criar Escala")
         self.notebook.add(self.acolytes_tab, text="👥 Acólitos")
-        self.notebook.add(self.history_tab, text="📜 Histórico")
         self.notebook.add(self.calendar_tab, text="📆 Calendário")
+        self.notebook.add(self.history_tab, text="📜 Histórico")
 
         # Auto-refresh calendar when its tab is selected
         self.notebook.bind("<<NotebookTabChanged>>", self._on_main_tab_changed)
@@ -170,9 +156,9 @@ class App:
             self.include_activity_table_per_acolyte,
             self.auto_lift_suspensions_on_end_date,
             self.current_cycle_name,
-            self.order_message_by_date,
             self.birthday_settings,
         ) = result
+        self.birthday_settings.setdefault("muted_birthdate_notifications", [])
         if hasattr(self, "_include_suspended_general_event_var"):
             self._include_suspended_general_event_var.set(
                 self.include_suspended_in_general_event
@@ -185,10 +171,6 @@ class App:
             self._auto_lift_suspensions_var.set(
                 self.auto_lift_suspensions_on_end_date
             )
-        if hasattr(self, "_order_message_by_date_var"):
-            self._order_message_by_date_var.set(
-                self.order_message_by_date
-            )
         self.schedule_tab.refresh_acolyte_list()
         self.schedule_tab.load_slots_from_data(adapt_dates=True)
         self.events_tab.refresh_list()
@@ -196,6 +178,25 @@ class App:
         self.acolytes_tab.refresh_list()
         self.history_tab.refresh()
         self.calendar_tab.refresh()
+        self._prune_expired_unavailabilities()
+
+    def _prune_expired_unavailabilities(self):
+        """Remove indisponibilidades temporárias cuja data de fim já passou."""
+        today = datetime.now().date()
+        changed = False
+        for ac in self.acolytes:
+            temp_unavs = getattr(ac, 'temporary_unavailabilities', None)
+            if not temp_unavs:
+                continue
+            before = len(temp_unavs)
+            ac.temporary_unavailabilities = [
+                t for t in temp_unavs
+                if datetime.strptime(t.end_date, "%d/%m/%Y").date() >= today
+            ]
+            if len(ac.temporary_unavailabilities) < before:
+                changed = True
+        if changed:
+            self.save()
 
     def save(self):
         save_data(
@@ -211,7 +212,6 @@ class App:
             self.include_activity_table_per_acolyte,
             self.auto_lift_suspensions_on_end_date,
             self.current_cycle_name,
-            self.order_message_by_date,
             self.birthday_settings,
         )
 
@@ -233,17 +233,25 @@ class App:
         )
         self.save()
 
-    def _on_toggle_order_message_by_date(self):
-        self.order_message_by_date = bool(
-            self._order_message_by_date_var.get()
-        )
-        self.save()
-
     def find_acolyte(self, acolyte_id: str) -> Optional[Acolyte]:
         for ac in self.acolytes:
             if ac.id == acolyte_id:
                 return ac
         return None
+
+    def build_current_cycle_history_entry(self, label: str) -> CicloHistoryEntry:
+        import uuid as _uuid
+
+        return CicloHistoryEntry(
+            id=str(_uuid.uuid4()),
+            closed_at=datetime.now().strftime("%d/%m/%Y %H:%M"),
+            label=label,
+            acolytes_snapshot=[a.to_dict() for a in self.acolytes],
+            schedule_slots_snapshot=[s.to_dict() for s in self.schedule_slots],
+            general_events_snapshot=[e.to_dict() for e in self.general_events],
+            generated_schedules_snapshot=[gs.to_dict() for gs in self.generated_schedules],
+            finalized_event_batches_snapshot=[fb.to_dict() for fb in self.finalized_event_batches],
+        )
 
     def get_selected_acolyte_for_schedule(self) -> Optional[Acolyte]:
         """Retorna o acólito selecionado na aba de escalas."""
@@ -278,7 +286,6 @@ class App:
                 self.include_activity_table_per_acolyte,
                 self.auto_lift_suspensions_on_end_date,
                 self.current_cycle_name,
-                self.order_message_by_date,
                 self.birthday_settings,
             )
             messagebox.showinfo("Sucesso", f"Dados exportados com sucesso para:\n{path}")
@@ -313,7 +320,6 @@ class App:
                 include_activity_table_per_acolyte,
                 auto_lift_suspensions_on_end_date,
                 current_cycle_name,
-                order_message_by_date,
                 birthday_settings,
             ) = import_from_file(path)
             self.acolytes = acolytes
@@ -328,7 +334,6 @@ class App:
             self.include_activity_table_per_acolyte = include_activity_table_per_acolyte
             self.auto_lift_suspensions_on_end_date = auto_lift_suspensions_on_end_date
             self.current_cycle_name = current_cycle_name
-            self.order_message_by_date = order_message_by_date
             self.birthday_settings = birthday_settings
             self.save()
             self._load_data()
@@ -357,27 +362,80 @@ class App:
         from .dialogs import BirthdaySettingsDialog
         dialog = BirthdaySettingsDialog(self.root, self.birthday_settings)
         if dialog.result is not None:
+            # Preserva os aniversários específicos ocultados no popup semanal.
+            dialog.result.setdefault(
+                "muted_birthdate_notifications",
+                list(self.birthday_settings.get("muted_birthdate_notifications", [])),
+            )
             self.birthday_settings = dialog.result
             self.save()
+
+    def _birthday_occurrence_in_notify_window(self, acolyte: Acolyte) -> Optional[datetime.date]:
+        """Retorna a data de ocorrência no intervalo de hoje -8 até hoje +8 dias."""
+        if not acolyte.birthdate:
+            return None
+
+        today = datetime.now().date()
+        start_window = today - timedelta(days=8)
+        end_window = today + timedelta(days=8)
+
+        try:
+            bd = datetime.strptime(acolyte.birthdate, "%d/%m/%Y").date()
+        except ValueError:
+            return None
+
+        for year in (today.year - 1, today.year, today.year + 1):
+            try:
+                occurrence = bd.replace(year=year)
+            except ValueError:
+                # Ignora 29/02 em anos não bissextos.
+                continue
+            if start_window <= occurrence <= end_window:
+                return occurrence
+        return None
 
     def _check_birthdays_this_week(self):
         birthday_acolytes = get_birthday_acolytes_this_week(self.acolytes)
         if not birthday_acolytes:
             return
-        names = []
+
+        muted_notifications = set(
+            self.birthday_settings.get("muted_birthdate_notifications", [])
+        )
+
+        birthday_items = []
         for ac in birthday_acolytes:
+            occurrence = self._birthday_occurrence_in_notify_window(ac)
+            if occurrence is None:
+                continue
+
+            notification_key = f"{ac.id}|{occurrence.strftime('%d/%m/%Y')}"
+            if notification_key in muted_notifications:
+                continue
+
             try:
                 bd = datetime.strptime(ac.birthdate, "%d/%m/%Y")
                 date_str = bd.strftime('%d/%m')
                 weekday = detect_weekday(ac.birthdate)
                 if weekday:
-                    names.append(f"🎂 {ac.name} — {date_str} ({weekday})")
+                    label = f"🎂 {ac.name} — {date_str} ({weekday})"
                 else:
-                    names.append(f"🎂 {ac.name} — {date_str}")
+                    label = f"🎂 {ac.name} — {date_str}"
             except ValueError:
-                names.append(f"🎂 {ac.name}")
-        msg = "Aniversariantes desta semana:\n\n" + "\n".join(names)
-        messagebox.showinfo("Aniversários da Semana", msg)
+                label = f"🎂 {ac.name}"
+
+            birthday_items.append({"id": notification_key, "label": label})
+
+        if not birthday_items:
+            return
+
+        from .dialogs import BirthdayWeekDialog
+        dialog = BirthdayWeekDialog(self.root, birthday_items)
+        muted_selected = set(dialog.result or [])
+        if muted_selected:
+            updated_muted = sorted(muted_notifications.union(muted_selected))
+            self.birthday_settings["muted_birthdate_notifications"] = updated_muted
+            self.save()
 
     def run(self):
         self.root.mainloop()

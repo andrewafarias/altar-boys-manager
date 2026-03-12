@@ -97,10 +97,10 @@ def normalize_date(date_str: str) -> str:
 
 
 def get_birthday_acolytes_this_week(acolytes) -> list:
-    """Retorna os acólitos cujo aniversário cai na semana atual (segunda a domingo)."""
+    """Retorna os acólitos com aniversário no intervalo de hoje -8 até hoje +8 dias."""
     today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday())
-    end_of_week = start_of_week + timedelta(days=6)
+    start_window = today - timedelta(days=8)
+    end_window = today + timedelta(days=8)
 
     birthday_acolytes = []
     for ac in acolytes:
@@ -108,13 +108,13 @@ def get_birthday_acolytes_this_week(acolytes) -> list:
             continue
         try:
             bd = datetime.strptime(ac.birthdate, "%d/%m/%Y").date()
-            for year in (today.year, today.year + 1):
+            for year in (today.year - 1, today.year, today.year + 1):
                 try:
                     bd_year = bd.replace(year=year)
                 except ValueError:
                     # Feb 29 in a non-leap year
                     continue
-                if start_of_week <= bd_year <= end_of_week:
+                if start_window <= bd_year <= end_window:
                     birthday_acolytes.append(ac)
                     break
         except ValueError:

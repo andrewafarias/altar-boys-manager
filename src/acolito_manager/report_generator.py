@@ -9,6 +9,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate,
+    HRFlowable,
     PageBreak,
     Paragraph,
     Spacer,
@@ -33,15 +34,15 @@ def _build_table(data: list, col_widths: list) -> Table:
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 9),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
-                ("FONTSIZE", (0, 1), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("FONTSIZE", (0, 1), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -153,36 +154,36 @@ def generate_report(
     style_title = ParagraphStyle(
         "ReportTitle",
         parent=styles["Title"],
-        fontSize=22,
+        fontSize=18,
         textColor=colors.HexColor("#2c2c6c"),
-        spaceAfter=20,
+        spaceAfter=10,
     )
     style_acolyte_name = ParagraphStyle(
         "AcolyteName",
         parent=styles["Heading1"],
-        fontSize=16,
+        fontSize=12,
         textColor=colors.HexColor("#2c2c6c"),
-        spaceAfter=10,
-        spaceBefore=6,
+        spaceAfter=3,
+        spaceBefore=2,
     )
     style_section = ParagraphStyle(
         "SectionHeader",
         parent=styles["Heading2"],
-        fontSize=11,
+        fontSize=9,
         textColor=colors.HexColor("#4a4a8a"),
-        spaceAfter=6,
-        spaceBefore=10,
+        spaceAfter=2,
+        spaceBefore=4,
     )
     style_body = ParagraphStyle(
         "BodyText",
         parent=styles["Normal"],
-        fontSize=9,
-        spaceAfter=4,
+        fontSize=8,
+        spaceAfter=1,
     )
     style_link = ParagraphStyle(
         "LinkStyle",
         parent=styles["Normal"],
-        fontSize=9,
+        fontSize=8,
         textColor=colors.HexColor("#1a0dab"),
     )
 
@@ -196,9 +197,9 @@ def generate_report(
     story.append(Paragraph("Relatório de Acólitos", style_title))
     if cycle_name.strip():
         story.append(Paragraph(f"Ciclo: <b>{cycle_name.strip()}</b>", style_body))
-    story.append(Spacer(1, 0.3 * cm))
+    story.append(Spacer(1, 0.15 * cm))
     story.append(Paragraph('<a name="resumo_geral"/>Resumo Geral', style_section))
-    story.append(Spacer(1, 0.2 * cm))
+    story.append(Spacer(1, 0.1 * cm))
 
     # Tabela de resumo com hyperlinks nos nomes
     summary_header = [
@@ -246,16 +247,16 @@ def generate_report(
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 9),
+                ("FONTSIZE", (0, 0), (-1, 0), 8),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("ALIGN", (1, 1), (-1, -1), "CENTER"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
-                ("FONTSIZE", (0, 1), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("FONTSIZE", (0, 1), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -264,9 +265,9 @@ def generate_report(
     # =====================================================================
     # TABELA DE ESCALAS GERADAS: cards de todos os lotes gerados
     # =====================================================================
-    story.append(Spacer(1, 0.5 * cm))
-    story.append(Paragraph("Escalas Geradas", style_section))
     story.append(Spacer(1, 0.2 * cm))
+    story.append(Paragraph("Escalas Geradas", style_section))
+    story.append(Spacer(1, 0.1 * cm))
 
     if generated_schedules:
         acolyte_name_map: Dict[str, str] = {a.id: a.name for a in acolytes}
@@ -329,15 +330,15 @@ def generate_report(
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, 0), 9),
+                    ("FONTSIZE", (0, 0), (-1, 0), 8),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
-                    ("FONTSIZE", (0, 1), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("FONTSIZE", (0, 1), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ]
             )
         )
@@ -348,9 +349,9 @@ def generate_report(
     # =====================================================================
     # SEÇÃO DE ATIVIDADES: Tabela com todos os eventos registrados
     # =====================================================================
-    story.append(Spacer(1, 0.5 * cm))
-    story.append(Paragraph("Atividades Registradas", style_section))
     story.append(Spacer(1, 0.2 * cm))
+    story.append(Paragraph("Atividades Registradas", style_section))
+    story.append(Spacer(1, 0.1 * cm))
 
     if registered_events:
         events_header = [
@@ -383,15 +384,15 @@ def generate_report(
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, 0), 9),
+                    ("FONTSIZE", (0, 0), (-1, 0), 8),
                     ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                     ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
-                    ("FONTSIZE", (0, 1), (-1, -1), 8),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("FONTSIZE", (0, 1), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ]
             )
         )
@@ -406,9 +407,13 @@ def generate_report(
 
     for idx, acolyte in enumerate(acolytes):
         if idx > 0:
-            # Separate acolyte sections without forcing a new page.
-            story.append(Spacer(1, 0.7 * cm))
-            story.append(Spacer(1, 0.3 * cm))
+            story.append(Spacer(1, 0.2 * cm))
+            story.append(HRFlowable(
+                width="100%",
+                thickness=1,
+                color=colors.HexColor("#4a4a8a"),
+                spaceAfter=0.15 * cm,
+            ))
 
         anchor = _sanitize_anchor(acolyte.name)
 

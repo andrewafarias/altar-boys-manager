@@ -4,8 +4,9 @@ import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+from typing import Optional
 
-from ..models import BonusMovement, StandardSlot, ScheduleSlot, Unavailability, GeneralEvent
+from ..models import BonusMovement, StandardSlot, ScheduleSlot, Unavailability, TemporaryUnavailability, GeneralEvent
 from ..utils import (
     WEEKDAYS_PT,
     detect_weekday,
@@ -555,7 +556,7 @@ class AddEventDialog(BaseDialog):
         self.day_var.trace_add("write", self._on_day_change)
         self.date_var.trace_add("write", self._on_date_change)
 
-        ttk.Label(frame, text="Horário (opcional, HH:MM):").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Horário (HH:MM):").grid(row=3, column=0, sticky="w", pady=4)
         self.time_var = tk.StringVar()
         TimeEntryFrame(frame, textvariable=self.time_var, width=10).grid(
             row=3, column=1, padx=8, pady=4, sticky="w"
@@ -650,7 +651,7 @@ class AddEscalaGeralDialog(BaseDialog):
         self.day_var.trace_add("write", self._on_day_change)
         self.date_var.trace_add("write", self._on_date_change)
 
-        ttk.Label(frame, text="Horário (opcional, HH:MM):").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Horário (HH:MM):").grid(row=3, column=0, sticky="w", pady=4)
         self.time_var = tk.StringVar()
         TimeEntryFrame(frame, textvariable=self.time_var, width=10).grid(
             row=3, column=1, padx=8, pady=4, sticky="w"
@@ -710,6 +711,9 @@ class AddEscalaGeralDialog(BaseDialog):
             return
         if not date:
             messagebox.showwarning("Aviso", "Informe a data da escala geral.", parent=self)
+            return
+        if not time:
+            messagebox.showwarning("Aviso", "Informe o horário da escala geral.", parent=self)
             return
         include_activity = self.include_as_activity_var.get()
         include_schedule = self.include_as_schedule_var.get()
@@ -864,6 +868,7 @@ class StandardSlotsDialog(BaseDialog):
         )
 
         self._toggle_activity_options()
+        self._displayed_standard_slots = []
 
         btn_row = ttk.Frame(frame)
         btn_row.pack(fill=tk.X, pady=4)
@@ -877,11 +882,30 @@ class StandardSlotsDialog(BaseDialog):
 
     def _refresh_list(self):
         self.listbox.delete(0, tk.END)
-        for ss in self.app.standard_slots:
+        self._displayed_standard_slots = sorted(
+            self.app.standard_slots,
+            key=self._standard_slot_sort_key,
+        )
+        for ss in self._displayed_standard_slots:
             type_label = "Atividade" if getattr(ss, "is_activity", False) else "Horário"
             extra = " [mensagem]" if getattr(ss, "is_activity", False) and getattr(ss, "include_in_message", False) else ""
             time_text = ss.time or "sem hora"
             self.listbox.insert(tk.END, f"{type_label}: {ss.day} {time_text} - {ss.description}{extra}")
+
+    def _standard_slot_sort_key(self, slot: StandardSlot):
+        try:
+            day_idx = WEEKDAYS_PT.index(slot.day)
+        except ValueError:
+            day_idx = len(WEEKDAYS_PT)
+
+        time_text = (slot.time or "").strip()
+        time_rank = 1
+        time_sort = "99:99"
+        if time_text:
+            time_rank = 0
+            time_sort = time_text
+
+        return day_idx, time_rank, time_sort, (slot.description or "").lower(), slot.id
 
     def _toggle_activity_options(self):
         if self._is_activity_var.get():
@@ -915,18 +939,23 @@ class StandardSlotsDialog(BaseDialog):
             messagebox.showinfo("Aviso", "Selecione um item da escala padrão.", parent=self)
             return
         idx = sel[0]
-        if idx < len(self.app.standard_slots):
-            self.app.standard_slots.pop(idx)
+        if idx < len(self._displayed_standard_slots):
+            selected_slot = self._displayed_standard_slots[idx]
+            self.app.standard_slots = [
+                ss for ss in self.app.standard_slots
+                if ss.id != selected_slot.id
+            ]
             self.app.save()
             self._refresh_list()
 
     def _add_to_schedule(self):
-        if not self.app.standard_slots:
+        ordered_slots = sorted(self.app.standard_slots, key=self._standard_slot_sort_key)
+        if not ordered_slots:
             messagebox.showinfo("Aviso", "Nenhum item da escala padrão cadastrado.", parent=self)
             return
         added_schedule_items = 0
         added_activity_items = 0
-        for ss in self.app.standard_slots:
+        for ss in ordered_slots:
             auto_date = next_occurrence_of_day(ss.day)
             if getattr(ss, "is_activity", False):
                 event = GeneralEvent(
@@ -935,7 +964,6 @@ class StandardSlotsDialog(BaseDialog):
                     date=auto_date,
                     time=ss.time,
                     include_in_message=getattr(ss, "include_in_message", False),
-                    order_index=self.app.schedule_tab.next_card_order_index(),
                 )
                 self.app.general_events.append(event)
                 added_activity_items += 1
@@ -943,13 +971,9 @@ class StandardSlotsDialog(BaseDialog):
                 slot = ScheduleSlot(
                     id=str(uuid.uuid4()), date=auto_date, day=ss.day,
                     time=ss.time, description=ss.description,
-                    order_index=self.app.schedule_tab.next_card_order_index(),
                 )
                 self.app.schedule_slots.append(slot)
                 added_schedule_items += 1
-        # Sort cards by date/time if ordering is enabled
-        if self.app.order_message_by_date:
-            self.app.schedule_tab._sort_cards_by_date_time()
         self.app.schedule_tab.load_slots_from_data()
         self.app.events_tab.refresh_list()
         self.app.save()
@@ -1023,6 +1047,246 @@ class AddUnavailabilityDialog(BaseDialog):
             messagebox.showwarning("Aviso", "Informe horários válidos no formato HH:MM.", parent=self)
             return
         self.result = (day, start, end)
+        self.destroy()
+
+
+class AddTemporaryUnavailabilityDialog(BaseDialog):
+    """Diálogo para adicionar uma indisponibilidade temporária por intervalo de datas."""
+
+    def __init__(self, parent):
+        super().__init__(parent, "Adicionar Indisponibilidade Temporária")
+        self._build()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Data início (DD/MM/YYYY):").grid(row=0, column=0, sticky="w", pady=4)
+        self.start_date_var = tk.StringVar(value=today_str())
+        DateEntryFrame(frame, textvariable=self.start_date_var, width=14, date_format="DD/MM/YYYY").grid(
+            row=0, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Label(frame, text="Data fim (DD/MM/YYYY):").grid(row=1, column=0, sticky="w", pady=4)
+        self.end_date_var = tk.StringVar(value=today_str())
+        DateEntryFrame(frame, textvariable=self.end_date_var, width=14, date_format="DD/MM/YYYY").grid(
+            row=1, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=2, sticky="ew", pady=6)
+        ttk.Label(
+            frame,
+            text="Horário (deixe em branco para o dia todo):",
+            foreground="#555555",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 2))
+
+        ttk.Label(frame, text="Hora início (HH:MM):").grid(row=4, column=0, sticky="w", pady=4)
+        self.start_time_var = tk.StringVar()
+        TimeEntryFrame(frame, textvariable=self.start_time_var, width=8).grid(
+            row=4, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Label(frame, text="Hora fim (HH:MM):").grid(row=5, column=0, sticky="w", pady=4)
+        self.end_time_var = tk.StringVar()
+        TimeEntryFrame(frame, textvariable=self.end_time_var, width=8).grid(
+            row=5, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Confirmar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        start_date = normalize_date(self.start_date_var.get().strip())
+        end_date = normalize_date(self.end_date_var.get().strip())
+        if not start_date or not end_date:
+            messagebox.showwarning("Aviso", "Informe as datas de início e fim.", parent=self)
+            return
+        try:
+            sd = datetime.strptime(start_date, "%d/%m/%Y")
+            ed = datetime.strptime(end_date, "%d/%m/%Y")
+            if ed < sd:
+                messagebox.showwarning("Aviso", "A data de fim deve ser igual ou posterior à de início.", parent=self)
+                return
+        except ValueError:
+            messagebox.showwarning("Aviso", "Datas inválidas. Use o formato DD/MM/YYYY.", parent=self)
+            return
+
+        start_time = self.start_time_var.get().strip()
+        end_time = self.end_time_var.get().strip()
+
+        # Validate times only if at least one is provided
+        if start_time or end_time:
+            if not start_time or not end_time:
+                messagebox.showwarning("Aviso", "Informe ambos os horários ou deixe os dois em branco.", parent=self)
+                return
+            try:
+                sh, sm = map(int, start_time.split(":"))
+                eh, em = map(int, end_time.split(":"))
+                if not (0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59):
+                    raise ValueError
+                start_time = f"{sh:02d}:{sm:02d}"
+                end_time = f"{eh:02d}:{em:02d}"
+                if start_time >= end_time:
+                    messagebox.showwarning("Aviso", "O horário de início deve ser anterior ao fim.", parent=self)
+                    return
+            except (ValueError, AttributeError):
+                messagebox.showwarning("Aviso", "Horários inválidos. Use o formato HH:MM.", parent=self)
+                return
+
+        self.result = (start_date, end_date, start_time, end_time)
+        self.destroy()
+
+
+class EditUnavailabilityDialog(BaseDialog):
+    """Diálogo para editar uma indisponibilidade (semanal ou temporária)."""
+
+    def __init__(self, parent, item):
+        self._item = item
+        self._is_temporary = isinstance(item, TemporaryUnavailability)
+        title = "Editar Indisponibilidade Temporária" if self._is_temporary else "Editar Indisponibilidade"
+        super().__init__(parent, title)
+        self._build()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        if self._is_temporary:
+            self._build_temporary(frame)
+        else:
+            self._build_regular(frame)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.grid(row=self._btn_row, column=0, columnspan=2, pady=10)
+        ttk.Button(btn_frame, text="Salvar", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
+
+    def _build_regular(self, frame):
+        ttk.Label(frame, text="Dia da semana:").grid(row=0, column=0, sticky="w", pady=4)
+        self.day_var = tk.StringVar(value=self._item.day)
+        ttk.Combobox(
+            frame, textvariable=self.day_var, values=WEEKDAYS_PT, width=18, state="readonly"
+        ).grid(row=0, column=1, padx=8, pady=4, sticky="w")
+
+        ttk.Label(frame, text="Hora início (HH:MM):").grid(row=1, column=0, sticky="w", pady=4)
+        self.start_time_var = tk.StringVar(value=self._item.start_time)
+        TimeEntryFrame(frame, textvariable=self.start_time_var, width=8).grid(
+            row=1, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Label(frame, text="Hora fim (HH:MM):").grid(row=2, column=0, sticky="w", pady=4)
+        self.end_time_var = tk.StringVar(value=self._item.end_time)
+        TimeEntryFrame(frame, textvariable=self.end_time_var, width=8).grid(
+            row=2, column=1, padx=8, pady=4, sticky="w"
+        )
+        self._btn_row = 3
+
+    def _build_temporary(self, frame):
+        ttk.Label(frame, text="Data início (DD/MM/YYYY):").grid(row=0, column=0, sticky="w", pady=4)
+        self.start_date_var = tk.StringVar(value=self._item.start_date)
+        DateEntryFrame(frame, textvariable=self.start_date_var, width=14, date_format="DD/MM/YYYY").grid(
+            row=0, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Label(frame, text="Data fim (DD/MM/YYYY):").grid(row=1, column=0, sticky="w", pady=4)
+        self.end_date_var = tk.StringVar(value=self._item.end_date)
+        DateEntryFrame(frame, textvariable=self.end_date_var, width=14, date_format="DD/MM/YYYY").grid(
+            row=1, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=2, sticky="ew", pady=6)
+        ttk.Label(
+            frame,
+            text="Horário (deixe em branco para o dia todo):",
+            foreground="#555555",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 2))
+
+        ttk.Label(frame, text="Hora início (HH:MM):").grid(row=4, column=0, sticky="w", pady=4)
+        self.start_time_var = tk.StringVar(value=self._item.start_time)
+        TimeEntryFrame(frame, textvariable=self.start_time_var, width=8).grid(
+            row=4, column=1, padx=8, pady=4, sticky="w"
+        )
+
+        ttk.Label(frame, text="Hora fim (HH:MM):").grid(row=5, column=0, sticky="w", pady=4)
+        self.end_time_var = tk.StringVar(value=self._item.end_time)
+        TimeEntryFrame(frame, textvariable=self.end_time_var, width=8).grid(
+            row=5, column=1, padx=8, pady=4, sticky="w"
+        )
+        self._btn_row = 6
+
+    def _ok(self):
+        if self._is_temporary:
+            self._ok_temporary()
+        else:
+            self._ok_regular()
+
+    def _ok_regular(self):
+        day = self.day_var.get().strip()
+        start = self.start_time_var.get().strip()
+        end = self.end_time_var.get().strip()
+        if not day:
+            messagebox.showwarning("Aviso", "Selecione o dia da semana.", parent=self)
+            return
+        if not start or not end:
+            messagebox.showwarning("Aviso", "Informe os horários de início e fim.", parent=self)
+            return
+        try:
+            sh, sm = map(int, start.split(":"))
+            eh, em = map(int, end.split(":"))
+            if not (0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59):
+                raise ValueError
+            start = f"{sh:02d}:{sm:02d}"
+            end = f"{eh:02d}:{em:02d}"
+            if start >= end:
+                messagebox.showwarning("Aviso", "O horário de início deve ser anterior ao fim.", parent=self)
+                return
+        except (ValueError, AttributeError):
+            messagebox.showwarning("Aviso", "Informe horários válidos no formato HH:MM.", parent=self)
+            return
+        self.result = ("regular", day, start, end)
+        self.destroy()
+
+    def _ok_temporary(self):
+        start_date = normalize_date(self.start_date_var.get().strip())
+        end_date = normalize_date(self.end_date_var.get().strip())
+        if not start_date or not end_date:
+            messagebox.showwarning("Aviso", "Informe as datas de início e fim.", parent=self)
+            return
+        try:
+            sd = datetime.strptime(start_date, "%d/%m/%Y")
+            ed = datetime.strptime(end_date, "%d/%m/%Y")
+            if ed < sd:
+                messagebox.showwarning("Aviso", "A data de fim deve ser igual ou posterior à de início.", parent=self)
+                return
+        except ValueError:
+            messagebox.showwarning("Aviso", "Datas inválidas. Use o formato DD/MM/YYYY.", parent=self)
+            return
+
+        start_time = self.start_time_var.get().strip()
+        end_time = self.end_time_var.get().strip()
+        if start_time or end_time:
+            if not start_time or not end_time:
+                messagebox.showwarning("Aviso", "Informe ambos os horários ou deixe os dois em branco.", parent=self)
+                return
+            try:
+                sh, sm = map(int, start_time.split(":"))
+                eh, em = map(int, end_time.split(":"))
+                if not (0 <= sh <= 23 and 0 <= sm <= 59 and 0 <= eh <= 23 and 0 <= em <= 59):
+                    raise ValueError
+                start_time = f"{sh:02d}:{sm:02d}"
+                end_time = f"{eh:02d}:{em:02d}"
+                if start_time >= end_time:
+                    messagebox.showwarning("Aviso", "O horário de início deve ser anterior ao fim.", parent=self)
+                    return
+            except (ValueError, AttributeError):
+                messagebox.showwarning("Aviso", "Horários inválidos. Use o formato HH:MM.", parent=self)
+                return
+
+        self.result = ("temporary", start_date, end_date, start_time, end_time)
         self.destroy()
 
 
@@ -1201,9 +1465,21 @@ class EditEventParticipantsDialog(BaseDialog):
 class CloseCicloDialog(BaseDialog):
     """Diálogo para fechar o ciclo atual."""
 
-    def __init__(self, parent, initial_label: str = ""):
+    def __init__(
+        self,
+        parent,
+        initial_label: str = "",
+        *,
+        title_text: str = "Fechar Ciclo",
+        action_text: str = "Fechar Ciclo",
+        show_retention_options: bool = True,
+        info_title: Optional[str] = None,
+    ):
         self._initial_label = initial_label
-        super().__init__(parent, "Fechar Ciclo")
+        self._action_text = action_text
+        self._show_retention_options = show_retention_options
+        self._info_title = info_title
+        super().__init__(parent, title_text)
         self._build()
         self.wait_window()
 
@@ -1211,41 +1487,107 @@ class CloseCicloDialog(BaseDialog):
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
 
+        self.save_history_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            frame,
+            text="Salvar ciclo atual no histórico",
+            variable=self.save_history_var,
+            command=self._toggle_save_history,
+        ).pack(anchor="w", pady=(0, 8))
+
         ttk.Label(frame, text="Rótulo do ciclo (ex: 1º Semestre 2025):").pack(anchor="w", pady=(0, 4))
         self.label_var = tk.StringVar(value=self._initial_label)
-        ttk.Entry(frame, textvariable=self.label_var, width=36).pack(fill=tk.X, pady=4)
+        self.label_entry = ttk.Entry(frame, textvariable=self.label_var, width=36)
+        self.label_entry.pack(fill=tk.X, pady=4)
 
         sep = ttk.Separator(frame, orient=tk.HORIZONTAL)
         sep.pack(fill=tk.X, pady=8)
 
-        ttk.Label(frame, text="Ao fechar o ciclo:").pack(anchor="w")
-        ttk.Label(
-            frame, text="• As faltas de todos os acólitos serão resetadas.", foreground="gray"
-        ).pack(anchor="w")
-        ttk.Label(
-            frame, text="• As escalas e atividades serão resetadas.", foreground="gray"
-        ).pack(anchor="w")
-        ttk.Label(
-            frame, text="• O estado atual será salvo no histórico de ciclos.", foreground="gray"
-        ).pack(anchor="w")
+        self.keep_absences_var = tk.BooleanVar(value=False)
+        self.keep_schedule_data_var = tk.BooleanVar(value=False)
+        self.keep_event_history_var = tk.BooleanVar(value=False)
+        self.keep_bonus_var = tk.BooleanVar(value=True)
+        self.keep_draft_cards_var = tk.BooleanVar(value=False)
+        self.keep_finalized_history_var = tk.BooleanVar(value=False)
 
-        self.reset_bonus_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            frame, text="Também resetar bônus de todos os acólitos",
-            variable=self.reset_bonus_var
-        ).pack(anchor="w", pady=4)
+        if self._info_title:
+            ttk.Label(frame, text=self._info_title).pack(anchor="w")
+
+        ttk.Label(
+            frame,
+            text=(
+                "• O histórico só será salvo se a opção acima estiver marcada."
+                if not self._show_retention_options
+                else "• O sistema iniciará um novo ciclo com os dados escolhidos abaixo."
+            ),
+            foreground="gray",
+        ).pack(anchor="w")
+        if self._show_retention_options:
+            ttk.Label(
+                frame, text="• Dados não marcados serão limpos no novo ciclo.", foreground="gray"
+            ).pack(anchor="w")
+
+            keep_frame = ttk.LabelFrame(frame, text="Manter no novo ciclo", padding=8)
+            keep_frame.pack(fill=tk.X, pady=8)
+
+            ttk.Checkbutton(
+                keep_frame,
+                text="Faltas dos acólitos",
+                variable=self.keep_absences_var,
+            ).pack(anchor="w")
+            ttk.Checkbutton(
+                keep_frame,
+                text="Contagem e histórico de escalas",
+                variable=self.keep_schedule_data_var,
+            ).pack(anchor="w")
+            ttk.Checkbutton(
+                keep_frame,
+                text="Histórico de atividades",
+                variable=self.keep_event_history_var,
+            ).pack(anchor="w")
+            ttk.Checkbutton(
+                keep_frame,
+                text="Bônus e movimentações de bônus",
+                variable=self.keep_bonus_var,
+            ).pack(anchor="w")
+            ttk.Checkbutton(
+                keep_frame,
+                text="Cards rascunho de Criar Escala",
+                variable=self.keep_draft_cards_var,
+            ).pack(anchor="w")
+            ttk.Checkbutton(
+                keep_frame,
+                text="Escalas/atividades finalizadas do ciclo atual",
+                variable=self.keep_finalized_history_var,
+            ).pack(anchor="w")
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(pady=10)
-        ttk.Button(btn_frame, text="Fechar Ciclo", command=self._ok).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text=self._action_text, command=self._ok).pack(side=tk.LEFT, padx=4)
         ttk.Button(btn_frame, text="Cancelar", command=self._cancel).pack(side=tk.LEFT, padx=4)
 
+        self._toggle_save_history()
+
+    def _toggle_save_history(self):
+        state = tk.NORMAL if self.save_history_var.get() else tk.DISABLED
+        self.label_entry.configure(state=state)
+
     def _ok(self):
+        save_history = self.save_history_var.get()
         label = self.label_var.get().strip()
-        if not label:
+        if save_history and not label:
             messagebox.showwarning("Aviso", "Informe um rótulo para o ciclo.", parent=self)
             return
-        self.result = (label, self.reset_bonus_var.get())
+        self.result = {
+            "save_history": save_history,
+            "label": label,
+            "keep_absences": self.keep_absences_var.get(),
+            "keep_schedule_data": self.keep_schedule_data_var.get(),
+            "keep_event_history": self.keep_event_history_var.get(),
+            "keep_bonus": self.keep_bonus_var.get(),
+            "keep_draft_cards": self.keep_draft_cards_var.get(),
+            "keep_finalized_history": self.keep_finalized_history_var.get(),
+        }
         self.destroy()
 
 
@@ -1337,4 +1679,48 @@ class BirthdaySettingsDialog(BaseDialog):
             "message_template": self.message_text.get("1.0", tk.END).strip(),
             "send_time": send_time,
         }
+        self.destroy()
+
+
+class BirthdayWeekDialog(BaseDialog):
+    """Diálogo com aniversariantes da semana e opção de não exibir novamente por acólito."""
+
+    def __init__(self, parent, birthday_items: list):
+        self._birthday_items = birthday_items
+        self._mute_vars = []
+        super().__init__(parent, "Aniversários da Semana")
+        self._build()
+        self._center()
+        self.wait_window()
+
+    def _build(self):
+        frame = ttk.Frame(self, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(
+            frame,
+            text="Aniversariantes desta semana:",
+            font=("TkDefaultFont", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        for item in self._birthday_items:
+            item_frame = ttk.Frame(frame)
+            item_frame.pack(fill=tk.X, pady=2)
+
+            ttk.Label(item_frame, text=item.get("label", "")).pack(anchor="w")
+
+            mute_var = tk.BooleanVar(value=False)
+            self._mute_vars.append((item.get("id", ""), mute_var))
+            ttk.Checkbutton(
+                item_frame,
+                text="Não mostrar novamente este aniversário",
+                variable=mute_var,
+            ).pack(anchor="w", padx=18)
+
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=(12, 0))
+        ttk.Button(btn_frame, text="Fechar", command=self._ok).pack(side=tk.LEFT, padx=4)
+
+    def _ok(self):
+        self.result = [acolyte_id for acolyte_id, var in self._mute_vars if acolyte_id and var.get()]
         self.destroy()
