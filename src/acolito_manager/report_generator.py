@@ -1,7 +1,7 @@
 """Gerador de relatórios PDF para acólitos usando reportlab."""
 
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -9,6 +9,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     SimpleDocTemplate,
+    Flowable,
     HRFlowable,
     PageBreak,
     Paragraph,
@@ -28,25 +29,56 @@ def _sanitize_anchor(name: str) -> str:
 def _build_table(data: list, col_widths: list) -> Table:
     """Cria uma tabela estilizada."""
     table = Table(data, colWidths=col_widths)
+    table.hAlign = "LEFT"
     table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a4a8a")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, 0), 8),
+                ("FONTSIZE", (0, 0), (-1, 0), 7),
                 ("ALIGN", (0, 0), (-1, -1), "LEFT"),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f0f8")]),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#ccccdd")),
-                ("FONTSIZE", (0, 1), (-1, -1), 7),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("FONTSIZE", (0, 1), (-1, -1), 6.5),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
             ]
         )
     )
     return table
+
+
+class _StatusPanel(Flowable):
+    """Painel compacto de status em uma linha com bordas arredondadas."""
+
+    _HEIGHT = 0.55 * cm
+    _FONT_SIZE = 7.5
+    _RADIUS = 5
+
+    def __init__(self, text: str, width: float):
+        super().__init__()
+        self._text = text
+        self.width = width
+
+    def wrap(self, aW, aH):
+        return self.width, self._HEIGHT
+
+    def draw(self):
+        c = self.canv
+        h = self._HEIGHT
+        c.saveState()
+        c.setFillColor(colors.HexColor("#ebebf5"))
+        c.setStrokeColor(colors.HexColor("#7070b0"))
+        c.setLineWidth(0.8)
+        c.roundRect(0, 0, self.width, h, radius=self._RADIUS, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#1a1a3a"))
+        c.setFont("Helvetica", self._FONT_SIZE)
+        y = (h - self._FONT_SIZE) / 2 + 1
+        c.drawString(7, y, self._text)
+        c.restoreState()
 
 
 def _first_name(full_name: str) -> str:
@@ -126,8 +158,8 @@ def _generated_schedule_general_map(generated_schedule: GeneratedSchedule) -> Di
 def generate_report(
     acolytes: List[Acolyte],
     output_path: str,
-    registered_events: List[FinalizedEventBatchEntry] = None,
-    generated_schedules: List[GeneratedSchedule] = None,
+    registered_events: Optional[List[FinalizedEventBatchEntry]] = None,
+    generated_schedules: Optional[List[GeneratedSchedule]] = None,
     include_activity_table_per_acolyte: bool = True,
     cycle_name: str = "",
 ) -> str:
@@ -164,15 +196,16 @@ def generate_report(
         fontSize=12,
         textColor=colors.HexColor("#2c2c6c"),
         spaceAfter=3,
-        spaceBefore=2,
+        spaceBefore=10,
     )
     style_section = ParagraphStyle(
         "SectionHeader",
         parent=styles["Heading2"],
-        fontSize=9,
+        fontSize=8,
+        leading=8.5,
         textColor=colors.HexColor("#4a4a8a"),
-        spaceAfter=2,
-        spaceBefore=4,
+        spaceAfter=1,
+        spaceBefore=10,
     )
     style_body = ParagraphStyle(
         "BodyText",
@@ -188,6 +221,7 @@ def generate_report(
     )
 
     page_width = A4[0] - 4 * cm  # largura útil
+    acolyte_content_width = page_width - (0.2 * cm)
 
     story = []
 
@@ -273,7 +307,6 @@ def generate_report(
         acolyte_name_map: Dict[str, str] = {a.id: a.name for a in acolytes}
 
         schedule_header = [[
-            Paragraph("<b>Gerada em</b>", style_body),
             Paragraph("<b>Data</b>", style_body),
             Paragraph("<b>Dia</b>", style_body),
             Paragraph("<b>Horário</b>", style_body),
@@ -305,7 +338,6 @@ def generate_report(
 
                 desc = slot.description or ("Escala Geral" if is_general_event else "-")
                 schedule_rows.append([
-                    Paragraph(generated_schedule.generated_at or "-", style_body),
                     Paragraph(slot.date or "-", style_body),
                     Paragraph(slot.day or "-", style_body),
                     Paragraph(slot.time or "-", style_body),
@@ -316,12 +348,11 @@ def generate_report(
         schedule_table = Table(
             schedule_header + schedule_rows,
             colWidths=[
-                page_width * 0.18,
+                page_width * 0.14,
+                page_width * 0.20,
                 page_width * 0.12,
-                page_width * 0.18,
-                page_width * 0.10,
-                page_width * 0.17,
-                page_width * 0.25,
+                page_width * 0.20,
+                page_width * 0.34,
             ],
         )
         schedule_table.setStyle(
@@ -423,23 +454,18 @@ def generate_report(
             style_acolyte_name,
         ))
 
-        # --- Status ---
-        story.append(Paragraph("Status", style_section))
+        # --- Status (painel compacto) ---
         suspension_text = "Sim" if acolyte.is_suspended else "Não"
-        active = acolyte.active_suspension
-        if active:
-            suspension_text += f" ({active.reason}, início: {active.start_date}, fim: {active.end_date})"
-        status_lines = [
-            f"<b>Vezes escalado:</b> {acolyte.times_scheduled}",
-            f"<b>Faltas:</b> {acolyte.absence_count}",
-            f"<b>Suspenso:</b> {suspension_text}",
-            f"<b>Bônus:</b> {acolyte.bonus_count}",
-        ]
-        for line in status_lines:
-            story.append(Paragraph(line, style_body))
+        status_text = (
+            f"Escalas: {acolyte.times_scheduled}     "
+            f"Faltas: {acolyte.absence_count}     "
+            f"Suspenso: {suspension_text}     "
+            f"Bônus: {acolyte.bonus_count}"
+        )
+        story.append(_StatusPanel(status_text, acolyte_content_width))
 
         # --- Histórico de Escalas ---
-        story.append(Paragraph("Histórico de Escalas", style_section))
+        story.append(Paragraph("Escalas", style_section))
         if acolyte.schedule_history:
             header = [["Data", "Dia", "Horário", "Descrição", "Faltou"]]
             rows = [
@@ -448,7 +474,7 @@ def generate_report(
             ]
             table = _build_table(
                 header + rows,
-                [2.2 * cm, 3.0 * cm, 2.2 * cm, page_width - 9.4 * cm, 2.0 * cm],
+                [2.2 * cm, 3.0 * cm, 2.2 * cm, acolyte_content_width - 9.4 * cm, 2.0 * cm],
             )
             story.append(table)
         else:
@@ -462,7 +488,7 @@ def generate_report(
                 rows = [[e.name, e.date, e.time or "-", "Sim" if e.missed else "Não"] for e in acolyte.event_history]
                 table = _build_table(
                     header + rows,
-                    [page_width - 8 * cm, 2.5 * cm, 2.5 * cm, 3.0 * cm],
+                    [acolyte_content_width - 8 * cm, 2.5 * cm, 2.5 * cm, 3.0 * cm],
                 )
                 story.append(table)
             else:
@@ -479,7 +505,7 @@ def generate_report(
             ]
             table = _build_table(
                 header + rows,
-                [2.5 * cm, page_width - 5 * cm, 2.5 * cm],
+                [2.5 * cm, acolyte_content_width - 5 * cm, 2.5 * cm],
             )
             story.append(table)
         else:
@@ -499,7 +525,7 @@ def generate_report(
             ]
             table = _build_table(
                 header + rows,
-                [page_width - 8 * cm, 2.5 * cm, 3 * cm, 2.5 * cm],
+                [acolyte_content_width - 8 * cm, 2.5 * cm, 3 * cm, 2.5 * cm],
             )
             story.append(table)
         else:
@@ -520,7 +546,7 @@ def generate_report(
             ]
             table = _build_table(
                 header + rows,
-                [2.5 * cm, 2.5 * cm, page_width - 8 * cm, 3 * cm],
+                [2.5 * cm, 2.5 * cm, acolyte_content_width - 8 * cm, 3 * cm],
             )
             story.append(table)
         else:

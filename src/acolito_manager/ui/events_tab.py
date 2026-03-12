@@ -7,7 +7,7 @@ from typing import Callable
 from datetime import datetime
 
 from ..models import GeneralEvent, EventHistoryEntry, FinalizedEventBatch, FinalizedEventBatchEntry
-from ..utils import normalize_date, detect_weekday, next_occurrence_of_day
+from ..utils import WEEKDAYS_PT, normalize_date, detect_weekday, next_occurrence_of_day
 from .widgets import DateEntryFrame, TimeEntryFrame
 from .dialogs import AddEventDialog, EditEventParticipantsDialog
 
@@ -24,6 +24,47 @@ def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
         return False
 
 
+def _is_temp_unav_conflict(slot_date: str, slot_time: str, temp_unav) -> bool:
+    """Returns True if slot_date/slot_time conflicts with a TemporaryUnavailability."""
+    if not slot_date:
+        return False
+    try:
+        from datetime import datetime as _dt
+
+        d = _dt.strptime(slot_date, "%d/%m/%Y").date()
+        start_d = _dt.strptime(temp_unav.start_date, "%d/%m/%Y").date()
+        end_d = _dt.strptime(temp_unav.end_date, "%d/%m/%Y").date()
+        if not (start_d <= d <= end_d):
+            return False
+    except (ValueError, AttributeError):
+        return False
+
+    if not temp_unav.start_time or not temp_unav.end_time:
+        return True
+    if not slot_time:
+        return True
+    return _time_in_interval(slot_time, temp_unav.start_time, temp_unav.end_time)
+
+
+def _acolyte_unavailability_reason(acolyte, slot_date: str, slot_day: str, slot_time: str) -> str:
+    """Return a human-readable conflict reason or an empty string when available."""
+    if slot_day and slot_time:
+        for unav in getattr(acolyte, "unavailabilities", []):
+            if unav.day == slot_day and _time_in_interval(slot_time, unav.start_time, unav.end_time):
+                return f"indisponível às {slot_time} ({unav.start_time}-{unav.end_time})"
+
+    for temp_unav in getattr(acolyte, "temporary_unavailabilities", []):
+        if _is_temp_unav_conflict(slot_date, slot_time, temp_unav):
+            time_info = (
+                f"{temp_unav.start_time}-{temp_unav.end_time}"
+                if temp_unav.start_time and temp_unav.end_time
+                else "dia todo"
+            )
+            return f"indisponibilidade temporária em {slot_date} ({time_info})"
+
+    return ""
+
+
 class EventCard(ttk.LabelFrame):
     """Card inline para edição de uma atividade pendente."""
 
@@ -37,6 +78,8 @@ class EventCard(ttk.LabelFrame):
         self._refresh_participants_summary()
 
     def _build(self):
+        self._updating_fields = False
+
         row1 = ttk.Frame(self)
         row1.pack(fill=tk.X, pady=2)
 
@@ -47,7 +90,7 @@ class EventCard(ttk.LabelFrame):
 
         ttk.Label(row1, text="Data:").pack(side=tk.LEFT, padx=(8, 0))
         self.date_var = tk.StringVar(value=self.event.date)
-        self.date_var.trace_add("write", self._on_field_change)
+        self.date_var.trace_add("write", self._on_date_change)
         DateEntryFrame(row1, textvariable=self.date_var, width=8, date_format="DD/MM").pack(side=tk.LEFT, padx=4)
 
         ttk.Label(row1, text="Hora:").pack(side=tk.LEFT, padx=(8, 0))
@@ -60,63 +103,148 @@ class EventCard(ttk.LabelFrame):
         row2 = ttk.Frame(self)
         row2.pack(fill=tk.X, pady=(4, 2))
 
-        ttk.Button(row2, text="✏️ Editar Acólitos Incluídos", command=self._edit_included_acolytes).pack(side=tk.LEFT)
+        ttk.Label(row2, text="Dia:").pack(side=tk.LEFT)
+        default_day = detect_weekday(self.event.date) or WEEKDAYS_PT[datetime.now().weekday()]
+        self.day_var = tk.StringVar(value=default_day)
+        self.day_combo = ttk.Combobox(
+            row2,
+            textvariable=self.day_var,
+            values=WEEKDAYS_PT,
+            width=16,
+            state="readonly",
+        )
+        self.day_combo.pack(side=tk.LEFT, padx=4)
+        self.day_var.trace_add("write", self._on_day_change)
+
+        row3 = ttk.Frame(self)
+        row3.pack(fill=tk.X, pady=(2, 2))
+
+        self.participants_frame = ttk.Frame(row3)
+        self.participants_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        row4 = ttk.Frame(self)
+        row4.pack(fill=tk.X, pady=(2, 0))
+
+        ttk.Button(row4, text="✏️ Editar Excluídos", command=self._edit_included_acolytes).pack(side=tk.LEFT)
 
         self.include_in_message_var = tk.BooleanVar(value=self.event.include_in_message)
         self.include_in_message_var.trace_add("write", self._on_include_in_message_change)
-        ttk.Checkbutton(row2, text="Incluir na mensagem", variable=self.include_in_message_var).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Checkbutton(
+            row4,
+            text="Incluir na mensagem",
+            variable=self.include_in_message_var,
+        ).pack(side=tk.RIGHT)
 
-        self.summary_var = tk.StringVar()
-        ttk.Label(row2, textvariable=self.summary_var, foreground="#1f4f7a").pack(side=tk.LEFT, padx=10)
+    def _on_date_change(self, *_):
+        if self._updating_fields:
+            return
+        date = self.date_var.get().strip()
+        detected = detect_weekday(date)
+        if detected and detected != self.day_var.get():
+            self._updating_fields = True
+            self.day_var.set(detected)
+            self._updating_fields = False
+        self._on_field_change()
+
+    def _on_day_change(self, *_):
+        if self._updating_fields:
+            return
+        day = self.day_var.get().strip()
+        if day:
+            auto_date = next_occurrence_of_day(day)
+            if auto_date and auto_date != self.date_var.get():
+                self._updating_fields = True
+                self.date_var.set(auto_date)
+                self._updating_fields = False
+        self._on_field_change()
 
     def _included_acolyte_ids(self):
         excluded = set(self.event.excluded_acolyte_ids)
         return [ac.id for ac in self.app.acolytes if ac.id not in excluded]
 
     def _refresh_participants_summary(self):
-        included_names = [ac.name for ac in self.app.acolytes if ac.id not in self.event.excluded_acolyte_ids]
-        if not included_names:
-            self.summary_var.set("Nenhum acólito incluído")
-            return
-        preview = ", ".join(included_names[:4])
-        if len(included_names) > 4:
-            preview = f"{preview}... (+{len(included_names) - 4})"
-        self.summary_var.set(f"Incluídos: {len(included_names)} | {preview}")
+        for widget in self.participants_frame.winfo_children():
+            widget.destroy()
+
+        excluded_names = []
+        for eid in self.event.excluded_acolyte_ids:
+            ac = self.app.find_acolyte(eid)
+            if ac:
+                excluded_names.append(ac.name)
+
+        if excluded_names:
+            labels_frame = ttk.Frame(self.participants_frame)
+            labels_frame.grid(row=0, column=0, sticky="w", pady=(2, 0))
+            ttk.Label(
+                labels_frame,
+                text="excluído: ",
+                font=("TkDefaultFont", 8),
+                foreground="gray",
+            ).pack(side=tk.LEFT)
+            ttk.Label(
+                labels_frame,
+                text=", ".join(excluded_names),
+                font=("TkDefaultFont", 8),
+                foreground="gray",
+            ).pack(side=tk.LEFT)
 
     def _on_field_change(self, *_):
+        old_date = self.event.date
+        old_time = self.event.time
         self.event.name = self.name_var.get().strip()
         self.event.date = normalize_date(self.date_var.get().strip())
         self.event.time = self.time_var.get().strip()
-        self._check_unavailability_on_edit()
+
+        datetime_changed = old_date != self.event.date or old_time != self.event.time
+        if datetime_changed:
+            self._apply_event_datetime_change(date_changed=(old_date != self.event.date))
+
+        self._refresh_participants_summary()
         self.app.save()
         self.schedule_tab.maybe_refresh_cards_after_datetime_change()
 
-    def _check_unavailability_on_edit(self):
-        """Check if included acolytes are unavailable with the current date/time."""
+    def _apply_event_datetime_change(self, date_changed: bool):
+        """Auto include/exclude participants on datetime changes for activities."""
+        warnings = []
+
+        valid_date_for_reset = False
+        if date_changed:
+            try:
+                datetime.strptime(self.event.date, "%d/%m/%Y")
+                valid_date_for_reset = True
+            except (TypeError, ValueError):
+                valid_date_for_reset = False
+
+        if date_changed and valid_date_for_reset and self.event.excluded_acolyte_ids:
+            self.event.excluded_acolyte_ids = []
+            warnings.append(
+                "Data alterada: acólitos autoexcluídos foram incluídos novamente."
+            )
+
+        conflict_lines = []
         day = detect_weekday(self.event.date)
-        time = self.event.time
-        if not day or not time:
-            return
-        included_ids = self._included_acolyte_ids()
-        if not included_ids:
-            return
-        conflict_warnings = []
-        for aid in included_ids:
-            acolyte = self.app.find_acolyte(aid)
-            if acolyte and hasattr(acolyte, 'unavailabilities'):
-                for unav in acolyte.unavailabilities:
-                    if unav.day == day and _time_in_interval(time, unav.start_time, unav.end_time):
-                        conflict_warnings.append(
-                            f"{acolyte.name}: indisponível às {time} "
-                            f"({unav.start_time}–{unav.end_time})"
-                        )
-                        break
-        if conflict_warnings:
-            from tkinter import messagebox
+        for ac in self.app.acolytes:
+            if ac.id in set(self.event.excluded_acolyte_ids):
+                continue
+            reason = _acolyte_unavailability_reason(ac, self.event.date, day, self.event.time)
+            if reason:
+                self.event.excluded_acolyte_ids.append(ac.id)
+                conflict_lines.append(f"{ac.name}: {reason}")
+
+        if conflict_lines:
+            self.event.excluded_acolyte_ids = sorted(set(self.event.excluded_acolyte_ids))
+            warnings.append(
+                "Acólitos indisponíveis foram excluídos automaticamente da atividade. "
+                "Edite os participantes se quiser incluí-los manualmente."
+            )
+
+        if warnings or conflict_lines:
+            details = ""
+            if conflict_lines:
+                details = "\n\n" + "\n".join(conflict_lines)
             messagebox.showwarning(
                 "Aviso de Indisponibilidade",
-                "Os seguintes acólitos têm indisponibilidade no novo horário:\n\n"
-                + "\n".join(conflict_warnings),
+                "\n".join(warnings) + details,
                 parent=self,
             )
 
@@ -125,11 +253,14 @@ class EventCard(ttk.LabelFrame):
         self.app.save()
 
     def _edit_included_acolytes(self):
-        dlg = EditEventParticipantsDialog(self.app.root, self.app.acolytes, self._included_acolyte_ids())
+        dlg = EditEventParticipantsDialog(
+            self.app.root,
+            self.app.acolytes,
+            self.event.excluded_acolyte_ids,
+        )
         if dlg.result is None:
             return
-        selected_ids = set(dlg.result)
-        self.event.excluded_acolyte_ids = [ac.id for ac in self.app.acolytes if ac.id not in selected_ids]
+        self.event.excluded_acolyte_ids = list(dlg.result)
         self._refresh_participants_summary()
         self.app.save()
 
@@ -160,9 +291,28 @@ class EventsTab:
                 date=date,
                 time=time,
             )
+
+            conflict_lines = []
+            day = detect_weekday(date)
+            for ac in self.app.acolytes:
+                reason = _acolyte_unavailability_reason(ac, date, day, time)
+                if reason:
+                    ev.excluded_acolyte_ids.append(ac.id)
+                    conflict_lines.append(f"{ac.name}: {reason}")
+            ev.excluded_acolyte_ids = sorted(set(ev.excluded_acolyte_ids))
+
             self.app.general_events.append(ev)
             self.schedule_tab.refresh_cards()
             self.app.save()
+
+            if conflict_lines:
+                messagebox.showwarning(
+                    "Aviso de Indisponibilidade",
+                    "Alguns acólitos indisponíveis foram excluídos automaticamente da atividade. "
+                    "Edite os participantes se quiser incluí-los manualmente.\n\n"
+                    + "\n".join(conflict_lines),
+                    parent=self.app.root,
+                )
 
     def _remove_event(self, ev: GeneralEvent):
         if not messagebox.askyesno("Confirmar", f"Remover atividade '{ev.name}'?"):

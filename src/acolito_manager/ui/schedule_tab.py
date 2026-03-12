@@ -28,7 +28,6 @@ from .dialogs import (
     AddEscalaGeralDialog,
     StandardSlotsDialog,
     FinalizeScheduleDialog,
-    GeneralEventUnavailabilityDialog,
     EditGeneralEventExcludedDialog,
 )
 from .events_tab import EventsTab
@@ -44,6 +43,47 @@ def _time_in_interval(time_str: str, start_time: str, end_time: str) -> bool:
         return s <= t < e
     except (ValueError, AttributeError):
         return False
+
+
+def _is_temp_unav_conflict(slot_date: str, slot_time: str, temp_unav) -> bool:
+    """Returns True if slot_date/slot_time conflicts with a TemporaryUnavailability."""
+    if not slot_date:
+        return False
+    try:
+        from datetime import datetime as _dt
+        d = _dt.strptime(slot_date, "%d/%m/%Y").date()
+        start_d = _dt.strptime(temp_unav.start_date, "%d/%m/%Y").date()
+        end_d = _dt.strptime(temp_unav.end_date, "%d/%m/%Y").date()
+        if not (start_d <= d <= end_d):
+            return False
+    except (ValueError, AttributeError):
+        return False
+    # If the temporary unavailability has no time range, it covers the whole day.
+    if not temp_unav.start_time or not temp_unav.end_time:
+        return True
+    # If the slot has no specific time, treat any timed unavailability as conflicting.
+    if not slot_time:
+        return True
+    return _time_in_interval(slot_time, temp_unav.start_time, temp_unav.end_time)
+
+
+def _acolyte_unavailability_reason(acolyte, slot_date: str, slot_day: str, slot_time: str) -> str:
+    """Return a human-readable conflict reason or an empty string when available."""
+    if slot_day and slot_time:
+        for unav in getattr(acolyte, "unavailabilities", []):
+            if unav.day == slot_day and _time_in_interval(slot_time, unav.start_time, unav.end_time):
+                return f"indisponível às {slot_time} ({unav.start_time}-{unav.end_time})"
+
+    for temp_unav in getattr(acolyte, "temporary_unavailabilities", []):
+        if _is_temp_unav_conflict(slot_date, slot_time, temp_unav):
+            time_info = (
+                f"{temp_unav.start_time}-{temp_unav.end_time}"
+                if temp_unav.start_time and temp_unav.end_time
+                else "dia todo"
+            )
+            return f"indisponibilidade temporária em {slot_date} ({time_info})"
+
+    return ""
 
 
 def _sort_key_date_time(date_str: str, time_str: str):
@@ -179,34 +219,126 @@ class ScheduleSlotCard(ttk.LabelFrame):
         self._on_field_change()
 
     def _on_field_change(self, *_):
+        old_date = self.slot.date
+        old_time = self.slot.time
+        old_day = self.slot.day
         self.slot.date = normalize_date(self.date_var.get().strip())
         self.slot.time = self.time_var.get().strip()
         self.slot.description = self.desc_var.get().strip()
         self.slot.day = self.day_var.get()
-        # Check unavailability when editing date/time
-        self._check_unavailability_on_edit()
+
+        datetime_changed = (
+            old_date != self.slot.date
+            or old_time != self.slot.time
+            or old_day != self.slot.day
+        )
+
+        # Keep general-event participants aligned with current date/time constraints.
+        if self.slot.is_general_event and datetime_changed:
+            self._apply_general_event_datetime_change(
+                date_changed=(old_date != self.slot.date)
+            )
+        elif not self.slot.is_general_event and datetime_changed:
+            self._check_unavailability_on_edit()
+
+        self._refresh_acolytes()
         self.app.save()
         self.schedule_tab.maybe_refresh_cards_after_datetime_change()
 
+    def _apply_general_event_datetime_change(self, date_changed: bool):
+        """Auto include/exclude participants on datetime changes for general events."""
+        suspended_set = set(self.slot.suspended_excluded_acolyte_ids)
+        warnings = []
+
+        valid_date_for_reset = False
+        if date_changed:
+            try:
+                datetime.strptime(self.slot.date, "%d/%m/%Y")
+                valid_date_for_reset = True
+            except (TypeError, ValueError):
+                valid_date_for_reset = False
+
+        if date_changed and valid_date_for_reset:
+            previously_excluded = [
+                aid for aid in self.slot.excluded_acolyte_ids if aid not in suspended_set
+            ]
+            if previously_excluded:
+                self.slot.excluded_acolyte_ids = []
+                warnings.append(
+                    "Data alterada: acólitos autoexcluídos foram incluídos novamente."
+                )
+
+            # Date changes reset participation to everyone (except suspended/locked exclusions).
+            self.slot.acolyte_ids = [
+                ac.id for ac in self.app.acolytes if ac.id not in suspended_set
+            ]
+
+        if not self.slot.acolyte_ids:
+            self.slot.acolyte_ids = [
+                ac.id for ac in self.app.acolytes
+                if ac.id not in suspended_set and ac.id not in set(self.slot.excluded_acolyte_ids)
+            ]
+
+        newly_conflicting = []
+        newly_conflicting_ids = set()
+        excluded_set = set(self.slot.excluded_acolyte_ids)
+        for aid in self.slot.acolyte_ids:
+            if aid in suspended_set or aid in excluded_set:
+                continue
+            acolyte = self.app.find_acolyte(aid)
+            if not acolyte:
+                continue
+            reason = _acolyte_unavailability_reason(
+                acolyte,
+                self.slot.date,
+                self.slot.day,
+                self.slot.time,
+            )
+            if reason:
+                newly_conflicting_ids.add(aid)
+                newly_conflicting.append(f"{acolyte.name}: {reason}")
+
+        if newly_conflicting_ids:
+            excluded_set.update(newly_conflicting_ids)
+            self.slot.excluded_acolyte_ids = sorted(excluded_set)
+            warnings.append(
+                "Acólitos indisponíveis foram excluídos automaticamente. "
+                "Edite os participantes se quiser incluí-los manualmente."
+            )
+
+        union_excluded = set(self.slot.excluded_acolyte_ids) | suspended_set
+        self.slot.acolyte_ids = [ac.id for ac in self.app.acolytes if ac.id not in union_excluded]
+
+        if warnings or newly_conflicting:
+            details = ""
+            if newly_conflicting:
+                details = "\n\n" + "\n".join(newly_conflicting)
+            messagebox.showwarning(
+                "Aviso de Indisponibilidade",
+                "\n".join(warnings) + details,
+                parent=self,
+            )
+
     def _check_unavailability_on_edit(self):
         """Check if any currently assigned acolytes are unavailable with the new date/time."""
-        if not self.slot.day or not self.slot.time or not self.slot.acolyte_ids:
+        if not self.slot.acolyte_ids:
             return
-        
+
         conflict_warnings = []
         for aid in self.slot.acolyte_ids:
             acolyte = self.app.find_acolyte(aid)
-            if acolyte and hasattr(acolyte, 'unavailabilities'):
-                for unav in acolyte.unavailabilities:
-                    if unav.day == self.slot.day and _time_in_interval(
-                        self.slot.time, unav.start_time, unav.end_time
-                    ):
-                        conflict_warnings.append(
-                            f"{acolyte.name}: indisponível às {self.slot.time} "
-                            f"({unav.start_time}–{unav.end_time})"
-                        )
-                        break
-        
+            if not acolyte:
+                continue
+
+            reason = _acolyte_unavailability_reason(
+                acolyte,
+                self.slot.date,
+                self.slot.day,
+                self.slot.time,
+            )
+            if reason:
+                conflict_warnings.append(f"{acolyte.name}: {reason}")
+
         if conflict_warnings:
             messagebox.showwarning(
                 "Aviso de Indisponibilidade",
@@ -302,20 +434,18 @@ class ScheduleSlotCard(ttk.LabelFrame):
         self.app.save()
 
     def _is_acolyte_unavailable(self, acolyte_id: str) -> bool:
-        """Check if an acolyte is unavailable at this slot's day/time."""
-        if not self.slot.day or not self.slot.time:
-            return False
-        
+        """Check if an acolyte is unavailable at this slot's day/time (regular or temporary)."""
         acolyte = self.app.find_acolyte(acolyte_id)
-        if not acolyte or not hasattr(acolyte, 'unavailabilities'):
+        if not acolyte:
             return False
-        
-        for unav in acolyte.unavailabilities:
-            if unav.day == self.slot.day and _time_in_interval(
-                self.slot.time, unav.start_time, unav.end_time
-            ):
-                return True
-        return False
+        return bool(
+            _acolyte_unavailability_reason(
+                acolyte,
+                self.slot.date,
+                self.slot.day,
+                self.slot.time,
+            )
+        )
 
     def _format_excluded_indicator(self, entries: List[str], max_chars: int = 90) -> str:
         """Format excluded names and truncate long text to avoid UI overflow."""
@@ -726,23 +856,14 @@ class ScheduleTab(ttk.Frame):
             all_acolyte_ids = [ac.id for ac in eligible_acolytes]
             day = detect_weekday(date)
 
-            # Check unavailabilities
+            # Auto-exclude unavailable acolytes and warn once.
             excluded_ids = set()
-            if time and day:
-                conflicting = []
-                for ac in eligible_acolytes:
-                    if hasattr(ac, 'unavailabilities'):
-                        for unav in ac.unavailabilities:
-                            if unav.day == day and _time_in_interval(time, unav.start_time, unav.end_time):
-                                conflicting.append(ac)
-                                break
-                if conflicting:
-                    warn_dlg = GeneralEventUnavailabilityDialog(
-                        self.app.root, name, time, day, conflicting
-                    )
-                    if warn_dlg.result is not None:
-                        for ac in warn_dlg.result:
-                            excluded_ids.add(ac.id)
+            conflict_lines = []
+            for ac in eligible_acolytes:
+                reason = _acolyte_unavailability_reason(ac, date, day, time)
+                if reason:
+                    excluded_ids.add(ac.id)
+                    conflict_lines.append(f"{ac.name}: {reason}")
 
             final_acolyte_ids = [aid for aid in all_acolyte_ids if aid not in excluded_ids]
 
@@ -763,6 +884,15 @@ class ScheduleTab(ttk.Frame):
             self.app.schedule_slots.append(slot)
             self.refresh_cards()
             self.app.save()
+
+            if conflict_lines:
+                messagebox.showwarning(
+                    "Aviso de Indisponibilidade",
+                    "Alguns acólitos indisponíveis foram excluídos automaticamente da escala geral. "
+                    "Edite os participantes se quiser incluí-los manualmente.\n\n"
+                    + "\n".join(conflict_lines),
+                    parent=self,
+                )
 
     def _clear_schedule(self):
         if not self.app.schedule_slots and not self.app.general_events:

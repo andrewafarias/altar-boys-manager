@@ -1420,12 +1420,12 @@ class EditGeneralEventExcludedDialog(BaseDialog):
 
 
 class EditEventParticipantsDialog(BaseDialog):
-    """Edita quais acólitos estão incluídos em uma atividade."""
+    """Edita quais acólitos estão excluídos de uma atividade."""
 
-    def __init__(self, parent, acolytes, included_ids):
+    def __init__(self, parent, acolytes, excluded_ids):
         self._acolytes = acolytes
-        self._included_ids = set(included_ids or [])
-        super().__init__(parent, "Editar Participantes - Atividade")
+        self._excluded_ids = set(excluded_ids or [])
+        super().__init__(parent, "Editar Excluídos - Atividade")
         self._build()
         self.wait_window()
 
@@ -1435,7 +1435,7 @@ class EditEventParticipantsDialog(BaseDialog):
 
         ttk.Label(
             frame,
-            text="Marque os acólitos que devem participar desta atividade:",
+            text="Marque os acólitos que devem ficar excluídos desta atividade:",
             justify="left",
         ).pack(anchor="w", pady=(0, 8))
 
@@ -1444,7 +1444,7 @@ class EditEventParticipantsDialog(BaseDialog):
 
         self._vars = []
         for ac in self._acolytes:
-            default_checked = ac.id in self._included_ids
+            default_checked = ac.id in self._excluded_ids
             var = tk.BooleanVar(value=default_checked)
             self._vars.append((ac, var))
             suffix = " (susp.)" if getattr(ac, "is_suspended", False) else ""
