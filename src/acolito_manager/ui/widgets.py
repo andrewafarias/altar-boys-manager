@@ -157,9 +157,6 @@ class CalendarDialog(BaseDialog):
             self.result = f"{day:02d}/{self._view_month:02d}/{self._view_year}"
         self.destroy()
 
-    def _ok(self):
-        pass
-
 
 class DateEntryFrame(ttk.Frame):
     """Frame composto com Entry de data e botão de calendário."""
