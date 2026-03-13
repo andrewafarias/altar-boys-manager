@@ -18,7 +18,6 @@ from ..models import (
     ActivityHistoryEntry,
     Unavailability,
     TemporaryUnavailability,
-    CicloHistoryEntry,
 )
 from ..utils import today_str, is_currently_suspended
 from .dialogs import (
