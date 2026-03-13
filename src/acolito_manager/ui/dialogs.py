@@ -984,9 +984,6 @@ class StandardSlotsDialog(BaseDialog):
             parent=self,
         )
 
-    def _ok(self):
-        pass
-
 
 class AddUnavailabilityDialog(BaseDialog):
     """Diálogo para adicionar uma indisponibilidade a um acólito."""
