@@ -402,7 +402,7 @@ class DayDetailDialog(tk.Toplevel):
             slot: ScheduleSlot = unit
             parts = []
             if slot.is_general_event:
-                parts.append(f"⛪ {slot.general_event_name or 'Escala Geral'}")
+                parts.append(f"⛪ {slot.general_event_name or 'Convocação geral'}")
             else:
                 parts.append("📋 Escala")
             if slot.time:
@@ -951,7 +951,7 @@ class UnitDetailDialog(tk.Toplevel):
         if self.is_schedule:
             slot = self.unit
             if getattr(slot, "is_general_event", False):
-                name = getattr(slot, "general_event_name", "") or "Escala Geral"
+                name = getattr(slot, "general_event_name", "") or "Convocação geral"
             else:
                 name = getattr(slot, "description", "") or "Escala"
             self.title(f"📋 {name} — {_format_date(self.date_obj)}")
@@ -1440,7 +1440,7 @@ class CalendarTab(ttk.Frame):
                 if not d:
                     continue
                 if snap.is_general_event:
-                    name = snap.description or "Escala Geral"
+                    name = snap.description or "Convocação geral"
                 else:
                     name = snap.description or "Escala"
                 label = f"📋 {name}"

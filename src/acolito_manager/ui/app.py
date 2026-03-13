@@ -91,7 +91,7 @@ class App:
             value=self.include_suspended_in_general_event
         )
         settings_menu.add_checkbutton(
-            label="Incluir acólitos suspensos na Escala Geral",
+            label="Incluir acólitos suspensos na Convocação geral",
             variable=self._include_suspended_general_event_var,
             command=self._on_toggle_include_suspended_general_event,
         )

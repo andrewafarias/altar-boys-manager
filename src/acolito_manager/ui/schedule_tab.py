@@ -25,7 +25,7 @@ from ..utils import (
 )
 from .widgets import DateEntryFrame, TimeEntryFrame
 from .dialogs import (
-    AddEscalaGeralDialog,
+    AddConvocacaoGeralDialog,
     StandardSlotsDialog,
     FinalizeScheduleDialog,
     EditGeneralEventExcludedDialog,
@@ -127,7 +127,7 @@ class ScheduleSlotCard(ttk.LabelFrame):
 
     def __init__(self, parent, slot: ScheduleSlot, app, schedule_tab, **kwargs):
         title = (
-            f"Escala Geral #{slot.id[:6]}"
+            f"Convocação geral #{slot.id[:6]}"
             if slot.is_general_event
             else f"Escala #{slot.id[:6]}"
         )
@@ -621,7 +621,7 @@ class ScheduleTab(ttk.Frame):
         ttk.Button(btn_row, text="✨ Adicionar Atividade", command=self._add_event).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(btn_row, text="⛪ Escala Geral", command=self._add_general_event_slot).pack(
+        ttk.Button(btn_row, text="⛪ Convocação geral", command=self._add_general_event_slot).pack(
             side=tk.LEFT, padx=4
         )
         ttk.Button(btn_row, text="📋 Convocação Padrão", command=self._manage_standard_slots).pack(
@@ -865,7 +865,7 @@ class ScheduleTab(ttk.Frame):
         self.events_tab.add_activity()
 
     def _add_general_event_slot(self):
-        dlg = AddEscalaGeralDialog(self.app.root)
+        dlg = AddConvocacaoGeralDialog(self.app.root)
         if dlg.result:
             name, date, time, include_as_activity, include_as_schedule = dlg.result
 
@@ -913,7 +913,7 @@ class ScheduleTab(ttk.Frame):
             if conflict_lines:
                 messagebox.showwarning(
                     "Aviso de Indisponibilidade",
-                    "Alguns acólitos indisponíveis foram excluídos automaticamente da escala geral. "
+                    "Alguns acólitos indisponíveis foram excluídos automaticamente da Convocação geral. "
                     "Edite os participantes se quiser incluí-los manualmente.\n\n"
                     + "\n".join(conflict_lines),
                     parent=self,

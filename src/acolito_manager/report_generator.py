@@ -336,7 +336,7 @@ def generate_report(
                     ]
                     participants_text = _compact_names(first_names)
 
-                desc = slot.description or ("Escala Geral" if is_general_event else "-")
+                desc = slot.description or ("Convocação geral" if is_general_event else "-")
                 schedule_rows.append([
                     Paragraph(slot.date or "-", style_body),
                     Paragraph(slot.day or "-", style_body),

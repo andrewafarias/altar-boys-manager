@@ -609,13 +609,13 @@ class AddEventDialog(BaseDialog):
         self.destroy()
 
 
-class AddEscalaGeralDialog(BaseDialog):
-    """Diálogo para adicionar uma escala geral."""
+class AddConvocacaoGeralDialog(BaseDialog):
+    """Diálogo para adicionar uma Convocação geral."""
 
     _last_include_as_activity: bool = True
 
     def __init__(self, parent):
-        super().__init__(parent, "Adicionar Escala Geral")
+        super().__init__(parent, "Adicionar Convocação geral")
         self._build()
         self.wait_window()
 
@@ -625,7 +625,7 @@ class AddEscalaGeralDialog(BaseDialog):
 
         self._updating_fields = False
 
-        ttk.Label(frame, text="Nome da escala geral:").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(frame, text="Nome da Convocação geral:").grid(row=0, column=0, sticky="w", pady=4)
         self.name_var = tk.StringVar()
         ttk.Entry(frame, textvariable=self.name_var, width=30).grid(
             row=0, column=1, padx=8, pady=4
@@ -658,7 +658,7 @@ class AddEscalaGeralDialog(BaseDialog):
         )
 
         self.include_as_activity_var = tk.BooleanVar(
-            value=AddEscalaGeralDialog._last_include_as_activity
+            value=AddConvocacaoGeralDialog._last_include_as_activity
         )
         ttk.Checkbutton(
             frame, text="Incluir como atividade", variable=self.include_as_activity_var
@@ -707,13 +707,13 @@ class AddEscalaGeralDialog(BaseDialog):
             date = next_occurrence_of_day(self.day_var.get().strip())
         time = self.time_var.get().strip()
         if not name:
-            messagebox.showwarning("Aviso", "Informe o nome da escala geral.", parent=self)
+            messagebox.showwarning("Aviso", "Informe o nome da Convocação geral.", parent=self)
             return
         if not date:
-            messagebox.showwarning("Aviso", "Informe a data da escala geral.", parent=self)
+            messagebox.showwarning("Aviso", "Informe a data da Convocação geral.", parent=self)
             return
         if not time:
-            messagebox.showwarning("Aviso", "Informe o horário da escala geral.", parent=self)
+            messagebox.showwarning("Aviso", "Informe o horário da Convocação geral.", parent=self)
             return
         include_activity = self.include_as_activity_var.get()
         include_schedule = self.include_as_schedule_var.get()
@@ -724,7 +724,7 @@ class AddEscalaGeralDialog(BaseDialog):
                 parent=self,
             )
             return
-        AddEscalaGeralDialog._last_include_as_activity = include_activity
+        AddConvocacaoGeralDialog._last_include_as_activity = include_activity
         self.result = (name, date, time, include_activity, include_schedule)
         self.destroy()
 
@@ -1291,7 +1291,7 @@ class EditUnavailabilityDialog(BaseDialog):
 
 
 class GeneralEventUnavailabilityDialog(BaseDialog):
-    """Lista acólitos com conflito de indisponibilidade para uma escala geral."""
+    """Lista acólitos com conflito de indisponibilidade para uma Convocação geral."""
 
     def __init__(self, parent, event_name, event_time, event_day, conflicting_acolytes):
         self._event_name = event_name
@@ -1356,7 +1356,7 @@ class GeneralEventUnavailabilityDialog(BaseDialog):
 
 
 class EditGeneralEventExcludedDialog(BaseDialog):
-    """Edita quais acólitos serão excluídos de uma escala geral."""
+    """Edita quais acólitos serão excluídos de uma Convocação geral."""
 
     def __init__(
         self,
@@ -1368,7 +1368,7 @@ class EditGeneralEventExcludedDialog(BaseDialog):
         self._acolytes = acolytes
         self._excluded_ids = set(excluded_ids or [])
         self._suspended_locked_ids = set(suspended_locked_ids or [])
-        super().__init__(parent, "Editar Excluídos - Escala Geral")
+        super().__init__(parent, "Editar Excluídos - Convocação geral")
         self._build()
         self.wait_window()
 
@@ -1378,7 +1378,7 @@ class EditGeneralEventExcludedDialog(BaseDialog):
 
         ttk.Label(
             frame,
-            text="Marque os acólitos que devem ficar excluídos desta escala geral:",
+            text="Marque os acólitos que devem ficar excluídos desta Convocação geral:",
             justify="left",
         ).pack(anchor="w", pady=(0, 8))
 

@@ -234,7 +234,7 @@ class HistoryTab(ttk.Frame):
         if gs is not None:
             for slot in gs.slots:
                 if slot.is_general_event:
-                    unit_type = "Escala Geral"
+                    unit_type = "Convocação geral"
                 else:
                     unit_type = "Escala"
                 names = []
@@ -283,7 +283,7 @@ class HistoryTab(ttk.Frame):
                 for ac in [self.app.find_acolyte(aid)]
                 if ac is not None
             ]
-            lines.append(f"Tipo: {'Escala Geral' if slot.is_general_event else 'Escala'}")
+            lines.append(f"Tipo: {'Convocação geral' if slot.is_general_event else 'Escala'}")
             lines.append(f"Descrição: {slot.description or '-'}")
             lines.append(f"Data: {slot.date or '-'}")
             lines.append(f"Hora: {slot.time or '-'}")
@@ -412,7 +412,7 @@ class HistoryTab(ttk.Frame):
 
                 if source_type == "":
                     # Legacy batches do not carry source metadata. Infer link to
-                    # Escala Geral entries by matching name/date/time.
+                    # Convocação geral entries by matching name/date/time.
                     linked_general = False
                     for slot in self.app.schedule_slots:
                         if not slot.is_general_event:
