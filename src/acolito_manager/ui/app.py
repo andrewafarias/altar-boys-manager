@@ -257,10 +257,6 @@ class App:
             finalized_event_batches_snapshot=[fb.to_dict() for fb in self.finalized_event_batches],
         )
 
-    def get_selected_acolyte_for_schedule(self) -> Optional[Acolyte]:
-        """Retorna o acólito selecionado na aba de convocação."""
-        return self.schedule_tab.get_selected_acolyte()
-
     def get_selected_acolytes_for_schedule(self) -> List[Acolyte]:
         """Retorna todos os acólitos selecionados na aba de convocação."""
         return self.schedule_tab.get_selected_acolytes()
