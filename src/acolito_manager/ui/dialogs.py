@@ -6,7 +6,7 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 from typing import Optional
 
-from ..models import BonusMovement, StandardSlot, ScheduleSlot, Unavailability, TemporaryUnavailability, Activity
+from ..models import BonusMovement, StandardSlot, ScheduleSlot, TemporaryUnavailability, Activity
 from ..utils import (
     WEEKDAYS_PT,
     detect_weekday,
