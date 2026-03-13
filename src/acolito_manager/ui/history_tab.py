@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 
-from ..models import ScheduleSlot, Activity, Acolyte, CicloHistoryEntry
+from ..models import ScheduleSlot, Activity, Acolyte
 from ..report_generator import generate_report
 from .dialogs import CloseCicloDialog
 
