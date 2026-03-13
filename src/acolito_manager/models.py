@@ -236,13 +236,6 @@ class Acolyte:
     def suspension_count(self) -> int:
         return len(self.suspensions)
 
-    @property
-    def active_suspension(self) -> Optional[Suspension]:
-        for s in self.suspensions:
-            if s.is_active:
-                return s
-        return None
-
     def to_dict(self) -> dict:
         return {
             "id": self.id,
