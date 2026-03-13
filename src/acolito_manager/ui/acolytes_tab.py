@@ -20,7 +20,7 @@ from ..models import (
     TemporaryUnavailability,
     CicloHistoryEntry,
 )
-from ..utils import today_str, is_currently_suspended
+from ..utils import today_str, is_currently_suspended, open_file
 from .dialogs import (
     AddAbsenceDialog,
     EditAbsenceDialog,
@@ -1613,18 +1613,6 @@ class AcolytesTab(ttk.Frame):
                 self.app.current_cycle_name,
             )
             if messagebox.askyesno("Sucesso", f"Relatório gerado em:\n{path}\n\nDeseja abrir o arquivo?"):
-                self._open_file(path)
+                open_file(path)
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao gerar relatório:\n{e}")
-
-    def _open_file(self, path: str):
-        """Abre o arquivo com o programa padrão do sistema."""
-        try:
-            if sys.platform.startswith("darwin"):
-                subprocess.call(["open", path])
-            elif sys.platform.startswith("win"):
-                subprocess.run(["cmd", "/c", "start", "", path], shell=False)
-            else:
-                subprocess.call(["xdg-open", path])
-        except Exception:
-            pass

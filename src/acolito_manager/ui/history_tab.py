@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..models import ScheduleSlot, Activity, Acolyte, CicloHistoryEntry
 from ..report_generator import generate_report
+from ..utils import open_file
 from .dialogs import CloseCicloDialog
 
 
@@ -827,7 +828,7 @@ class HistoryTab(ttk.Frame):
                 "Sucesso",
                 f"Relatório do ciclo '{ch.label}' gerado em:\n{path}\n\nDeseja abrir?"
             ):
-                self._open_file(path)
+                open_file(path)
         except Exception as e:
             messagebox.showerror("Erro", f"Falha ao gerar relatório:\n{e}")
 
@@ -870,13 +871,3 @@ class HistoryTab(ttk.Frame):
         self._ciclo_detail_frame.pack_forget()
         messagebox.showinfo("Concluído", "Histórico de ciclos limpo.")
 
-    def _open_file(self, path: str):
-        try:
-            if sys.platform.startswith("darwin"):
-                subprocess.call(["open", path])
-            elif sys.platform.startswith("win"):
-                os.startfile(path)
-            else:
-                subprocess.call(["xdg-open", path])
-        except Exception:
-            pass
