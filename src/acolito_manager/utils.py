@@ -1,5 +1,8 @@
 """Funções utilitárias compartilhadas pelo projeto."""
 
+import os
+import sys
+import subprocess
 import calendar
 from datetime import datetime, timedelta
 from typing import List
@@ -120,3 +123,16 @@ def get_birthday_acolytes_this_week(acolytes) -> list:
         except ValueError:
             continue
     return birthday_acolytes
+
+
+def open_file(path: str):
+    """Abre o arquivo com o programa padrão do sistema de forma segura."""
+    try:
+        if sys.platform.startswith("darwin"):
+            subprocess.call(["open", path])
+        elif sys.platform.startswith("win"):
+            os.startfile(path)
+        else:
+            subprocess.call(["xdg-open", path])
+    except Exception:
+        pass
