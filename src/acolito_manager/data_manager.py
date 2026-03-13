@@ -1,7 +1,6 @@
 """Gerenciamento de persistência de dados em JSON."""
 
 import json
-import os
 from typing import List, Tuple
 from pathlib import Path
 
