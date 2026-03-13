@@ -5,7 +5,7 @@ from pathlib import Path
 # Add src to sys.path to allow importing acolito_manager
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from acolito_manager.utils import detect_weekday
+from acolito_manager.utils import detect_weekday, names_list_to_text
 
 def test_detect_weekday_full_date():
     assert detect_weekday("23/10/2023") == "Segunda-feira"
@@ -57,3 +57,19 @@ def test_detect_weekday_edge_cases():
     assert detect_weekday("   ") == ""
     assert detect_weekday("/") == ""
     assert detect_weekday("//") == ""
+
+def test_names_list_to_text():
+    # Empty list
+    assert names_list_to_text([]) == ""
+
+    # One name
+    assert names_list_to_text(["João"]) == "João"
+
+    # Two names
+    assert names_list_to_text(["João", "Maria"]) == "João e Maria"
+
+    # Three names
+    assert names_list_to_text(["João", "Maria", "José"]) == "João, Maria e José"
+
+    # More than three names
+    assert names_list_to_text(["João", "Maria", "José", "Ana", "Pedro"]) == "João, Maria, José, Ana e Pedro"
