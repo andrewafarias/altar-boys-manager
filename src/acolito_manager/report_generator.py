@@ -1,6 +1,5 @@
 """Gerador de relatórios PDF para acólitos usando reportlab."""
 
-import os
 from typing import Dict, List, Optional, Tuple
 
 from reportlab.lib import colors
