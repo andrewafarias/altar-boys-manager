@@ -762,6 +762,7 @@ class HistoryTab(ttk.Frame):
 
         # Restore the selected cycle
         self.app.acolytes = [Acolyte.from_dict(a) for a in ch.acolytes_snapshot]
+        self.app._update_acolyte_cache()
         self.app.schedule_slots = [ScheduleSlot.from_dict(s) for s in ch.schedule_slots_snapshot]
         self.app.general_events = [Activity.from_dict(e) for e in ch.general_events_snapshot]
         self.app.generated_schedules = [GeneratedSchedule.from_dict(gs) for gs in ch.generated_schedules_snapshot]
