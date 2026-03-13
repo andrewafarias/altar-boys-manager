@@ -27,6 +27,7 @@ class App:
 
     def __init__(self):
         self.acolytes: List[Acolyte] = []
+        self._acolyte_cache: dict[str, Acolyte] = {}
         self.schedule_slots: List[ScheduleSlot] = []
         self.general_events: List[Activity] = []
         self.generated_schedules: List[GeneratedSchedule] = []
@@ -178,7 +179,12 @@ class App:
         self.acolytes_tab.refresh_list()
         self.history_tab.refresh()
         self.calendar_tab.refresh()
+        self._update_acolyte_cache()
         self._prune_expired_unavailabilities()
+
+    def _update_acolyte_cache(self):
+        """Atualiza o cache de busca de acólitos por ID."""
+        self._acolyte_cache = {ac.id: ac for ac in self.acolytes}
 
     def _prune_expired_unavailabilities(self):
         """Remove indisponibilidades temporárias cuja data de fim já passou."""
@@ -199,6 +205,7 @@ class App:
             self.save()
 
     def save(self):
+        self._update_acolyte_cache()
         save_data(
             self.acolytes,
             self.schedule_slots,
@@ -234,10 +241,7 @@ class App:
         self.save()
 
     def find_acolyte(self, acolyte_id: str) -> Optional[Acolyte]:
-        for ac in self.acolytes:
-            if ac.id == acolyte_id:
-                return ac
-        return None
+        return self._acolyte_cache.get(acolyte_id)
 
     def build_current_cycle_history_entry(self, label: str) -> CicloHistoryEntry:
         import uuid as _uuid
