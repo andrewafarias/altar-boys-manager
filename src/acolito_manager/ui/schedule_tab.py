@@ -979,12 +979,19 @@ class ScheduleTab(ttk.Frame):
                         names.append(ac.name)
                 detail_line = names_list_to_text(names)
 
+            display_description = slot.description
+            if slot.is_general_event and display_description:
+                if display_description.endswith(" (escala)"):
+                    display_description = display_description[:-9]
+                elif display_description.endswith(" (atividade)"):
+                    display_description = display_description[:-12]
+
             message_items.append(
                 {
                     "date": slot.date,
                     "time": slot.time,
                     "day": slot.day,
-                    "description": slot.description,
+                    "description": display_description,
                     "detail": detail_line,
                 }
             )
@@ -1068,7 +1075,7 @@ class ScheduleTab(ttk.Frame):
             participating_acolyte_ids = []
             for aid in slot.acolyte_ids:
                 ac = self.app.find_acolyte(aid)
-                if ac and not ac.is_suspended:
+                if ac:
                     participating_acolyte_ids.append(aid)
 
             batch_entries.append(
